@@ -1,0 +1,187 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role and approval status",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "description": "Role ID" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
+        "permissions": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastLogin": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "status"]
+    },
+    "Role": {
+      "title": "Role",
+      "description": "Defined roles with permission sets",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "permissions": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "name"]
+    },
+    "CMSPage": {
+      "title": "CMS Page",
+      "description": "Dynamic page structure",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "slug": { "type": "string" },
+        "description": { "type": "string" },
+        "sections": { "type": "array", "description": "Array of section configurations" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["title", "slug"]
+    },
+    "Media": {
+      "title": "Media Item",
+      "description": "Image or Video asset",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "url": { "type": "string" },
+        "type": { "type": "string", "enum": ["IMAGE", "VIDEO"] },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Article": {
+      "title": "Article",
+      "description": "News, Events, Projects, Success Stories",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["NEWS", "EVENT", "PROJECT", "SUCCESS_STORY", "SCHEME", "SCHOLARSHIP"] },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "thumbnail": { "type": "string" },
+        "status": { "type": "string", "enum": ["DRAFT", "PUBLISHED", "ARCHIVED"] },
+        "publishedAt": { "type": "string", "format": "date-time" },
+        "author": { "type": "string" },
+        "metadata": { "type": "object" }
+      }
+    },
+    "Volunteer": {
+      "title": "Volunteer",
+      "description": "Volunteer registration and activity tracking",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "status": { "type": "string", "enum": ["VISITOR", "INTERESTED", "PENDING", "APPROVED", "ACTIVE"] },
+        "skills": { "type": "array", "items": { "type": "string" } },
+        "interests": { "type": "array", "items": { "type": "string" } },
+        "activities": { "type": "array" }
+      }
+    },
+    "Grievance": {
+      "title": "Grievance",
+      "description": "Complaint or Suggestion",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string", "description": "Optional for anonymous" },
+        "category": { "type": "string" },
+        "subject": { "type": "string" },
+        "description": { "type": "string" },
+        "attachments": { "type": "array" },
+        "status": { "type": "string", "enum": ["SUBMITTED", "UNDER_REVIEW", "ASSIGNED", "RESOLVED", "CLOSED"] },
+        "trackingNumber": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "AnalyticsEvent": {
+      "title": "Analytics Event",
+      "description": "User behavior tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "eventName": { "type": "string" },
+        "path": { "type": "string" },
+        "properties": { "type": "object" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      }
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "System action logs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "action": { "type": "string" },
+        "entity": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      }
+    },
+    "DistrictConfig": {
+      "title": "District Config",
+      "description": "Global settings and content",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "default": "District Portal" },
+        "leadership": { "type": "object" },
+        "statistics": { "type": "object" },
+        "footer": { "type": "object" },
+        "social": { "type": "object" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/roles/{roleId}": {
+      "schema": "Role",
+      "description": "System roles"
+    },
+    "/pages/{pageId}": {
+      "schema": "CMSPage",
+      "description": "Dynamic pages"
+    },
+    "/media/{mediaId}": {
+      "schema": "Media",
+      "description": "Media library assets"
+    },
+    "/articles/{articleId}": {
+      "schema": "Article",
+      "description": "News, events, projects, etc."
+    },
+    "/volunteers/{userId}": {
+      "schema": "Volunteer",
+      "description": "Volunteer profiles"
+    },
+    "/grievances/{grievanceId}": {
+      "schema": "Grievance",
+      "description": "Public complaints and suggestions"
+    },
+    "/analytics_events/{eventId}": {
+      "schema": "AnalyticsEvent",
+      "description": "Engagement tracking"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "System logs"
+    },
+    "/config/{configId}": {
+      "schema": "DistrictConfig",
+      "description": "Global application configuration"
+    }
+  }
+}

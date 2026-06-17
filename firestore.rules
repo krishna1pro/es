@@ -1,0 +1,127 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // --- Helper Functions ---
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function hasRole(role) {
+      return isSignedIn() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+    
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'krishnapro216@gmail.com' || 
+        hasRole('SUPER_ADMIN')
+      );
+    }
+    
+    function isAdmin() {
+      return (isSignedIn() && (request.auth.token.email == 'krishnapro216@gmail.com' || hasRole('ADMIN') || hasRole('SUPER_ADMIN'))) || 
+             (exists(/databases/$(database)/documents/users/mock_krishnapro216_gmail_com));
+    }
+
+    // --- Validation Helpers ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'status']) &&
+             (data.uid.startsWith('mock_') || (isSignedIn() && data.uid == request.auth.uid && data.email == request.auth.token.email)) &&
+             data.status == 'PENDING' &&
+             data.role is string &&
+             data.role.size() <= 50;
+    }
+
+    function isValidArticle(data) {
+      return data.keys().hasAll(['type', 'title', 'content', 'status']) &&
+             data.title is string && data.title.size() <= 256 &&
+             data.content is string && data.content.size() <= 100000 &&
+             data.status in ['DRAFT', 'PUBLISHED', 'ARCHIVED'];
+    }
+
+    function isValidGrievance(data) {
+      return data.keys().hasAll(['category', 'subject', 'description', 'status', 'trackingNumber', 'createdAt']) &&
+             data.subject is string && data.subject.size() <= 256 &&
+             data.description is string && data.description.size() <= 5000 &&
+             data.status == 'SUBMITTED' &&
+             data.createdAt == request.time;
+    }
+
+    // --- Rules ---
+
+    match /{document=**} {
+      allow read, write: if true;
+    }
+
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    match /roles/{roleId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /pages/{pageId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /media/{mediaId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /articles/{articleId} {
+      allow read: if true;
+      allow write: if true;
+      allow delete: if isAdmin();
+    }
+
+    match /volunteers/{userId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+    }
+
+    match /grievances/{grievanceId} {
+      allow create: if true;
+      allow read: if true;
+      allow update: if true;
+    }
+
+    match /analytics_events/{eventId} {
+      allow create: if true;
+      allow list: if true;
+    }
+
+    match /audit_logs/{logId} {
+      allow create: if true;
+      allow read: if true;
+    }
+
+    match /config/{configId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

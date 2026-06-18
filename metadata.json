@@ -1,5 +1,5 @@
 {
-  "name": "District Portal",
+  "name": "MLA WEB",
   "description": "Enterprise-grade district public engagement, citizen services, and volunteer management platform.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

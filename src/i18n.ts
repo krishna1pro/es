@@ -20,8 +20,11 @@ i18n
             media: "Media",
             contact: "Contact",
             volunteer: "Volunteer",
-            title: "Official Portal",
-            tagline: "People's Voice • District Leadership"
+            title: "MLA WEB",
+            tagline: "Vision • Integrity • Action"
+          },
+          redesign: {
+            title: "Redesign",
           },
           hero: {
             people: "PEOPLE",
@@ -112,8 +115,11 @@ i18n
             media: "మీడియా",
             contact: "సంప్రదించండి",
             volunteer: "వాలంటీర్",
-            title: "అధికారిక పోర్టల్",
-            tagline: "ప్రజా గొంతుక • జిల్లా నాయకత్వం"
+            title: "ఎమ్మెల్యే వెబ్",
+            tagline: "దర్శనం • సమగ్రత • చర్య"
+          },
+          redesign: {
+            title: "పునఃరూపకల్పన",
           },
           hero: {
             people: "ప్రజలు",

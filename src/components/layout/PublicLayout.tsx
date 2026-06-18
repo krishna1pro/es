@@ -24,6 +24,8 @@ export default function PublicLayout({ children }: PublicLayoutProps) {
     { name: t('nav.cadre'), path: "/cadre-corner" },
     { name: t('nav.media'), path: "/media-center" },
     { name: t('nav.contact'), path: "/contact" },
+    { name: "Redesign", path: "/redesign" },
+    { name: "Admin", path: "/leadership-control-center" },
   ];
 
   const toggleLanguage = () => {

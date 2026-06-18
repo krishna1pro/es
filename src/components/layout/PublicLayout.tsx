@@ -215,6 +215,7 @@ export default function PublicLayout({ children }: PublicLayoutProps) {
                   <li><Link to="/about" className="text-[11px] font-bold text-slate-400 hover:text-blue-700 uppercase tracking-tight transition-colors">Digital History</Link></li>
                   <li><Link to="/student-hub" className="text-[11px] font-bold text-slate-400 hover:text-blue-700 uppercase tracking-tight transition-colors">Scholarship Hub</Link></li>
                   <li><Link to="/media-center" className="text-[11px] font-bold text-slate-400 hover:text-blue-700 uppercase tracking-tight transition-colors">Media Assets</Link></li>
+                  <li><Link to="/redesign" className="text-[11px] font-bold text-slate-400 hover:text-blue-700 uppercase tracking-tight transition-colors">Visual Redesign (v2)</Link></li>
                </ul>
             </div>
 
@@ -238,7 +239,7 @@ export default function PublicLayout({ children }: PublicLayoutProps) {
               {t('footer.copyright')}
             </p>
             <div className="flex gap-6 items-center">
-              <Link to="/admin/access" className="text-[9px] font-black text-slate-300 hover:text-blue-700 uppercase tracking-widest transition-colors flex items-center gap-1">
+              <Link to="/leadership-control-center" className="text-[9px] font-black text-slate-300 hover:text-blue-700 uppercase tracking-widest transition-colors flex items-center gap-1">
                 <Menu size={10} />
                 {t('footer.management')}
               </Link>

@@ -34,6 +34,8 @@ import UserManagement from "./pages/UserManagement";
 import AdminMediaCenter from "./pages/AdminMediaCenter";
 import WaitingRoom from "./pages/WaitingRoom";
 
+import Redesign from "./pages/Redesign";
+
 export default function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -104,6 +106,7 @@ export default function App() {
         <Route path="/media-center" element={<MediaCenter />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/volunteer" element={<Volunteer />} />
+        <Route path="/redesign" element={<Redesign />} />
         
         {/* Admin Access & auth (HIDDEN URL) */}
         <Route path="/leadership-control-center" element={<AdminAccess user={user} />} />

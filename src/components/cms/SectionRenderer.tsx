@@ -22,6 +22,7 @@ import MLAHero from "../home/MLAHero";
 import MLAStats from "../home/MLAStats";
 import LeadershipJourney from "../home/LeadershipJourney";
 import OurVision from "../home/OurVision";
+import CommunityHero from "../home/CommunityHero";
 import { DailyActivities, MonthlyActivities, YearlyReport } from "../home/ActivitiesGrid";
 import ConstituencyDevelopment from "../home/ConstituencyDevelopment";
 import { CadreCorner, PeopleVoiceGrid } from "../home/CadreCorner";
@@ -92,10 +93,10 @@ export default function SectionRenderer({ section }: SectionRendererProps) {
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
                <div className="lg:col-span-1">
-                 <LeadershipJourney />
+                 <OurVision />
                </div>
                <div className="lg:col-span-2">
-                 <OurVision />
+                 <LeadershipJourney />
                </div>
             </div>
           </div>
@@ -137,31 +138,7 @@ export default function SectionRenderer({ section }: SectionRendererProps) {
       );
 
     case "peoples_voice":
-      return (
-        <section className="py-10 sm:py-20 bg-slate-50">
-          <div className="max-w-[1400px] mx-auto px-4 sm:px-12 space-y-8 sm:space-y-12">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
-               <h3 className="text-lg sm:text-2xl font-black uppercase tracking-tighter text-slate-900">{t('sections.dialogue')}</h3>
-               <div className="flex flex-wrap gap-4 sm:gap-6">
-                  <Link to="/public-voice" className="text-[10px] font-black text-blue-700 uppercase tracking-widest hover:underline flex items-center gap-2">
-                    {t('sections.publicPosts')} <ArrowRight size={14} />
-                  </Link>
-                  <Link to="/cadre-corner" className="text-[10px] font-black text-red-700 uppercase tracking-widest hover:underline flex items-center gap-2">
-                    {t('sections.cadreWorkspace')} <ArrowRight size={14} />
-                  </Link>
-               </div>
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-              <div className="lg:col-span-1">
-                <PeopleVoiceGrid />
-              </div>
-              <div className="lg:col-span-2">
-                <CadreCorner />
-              </div>
-            </div>
-          </div>
-        </section>
-      );
+      return <CommunityHero content={content} />;
 
     case "media_center":
       return (

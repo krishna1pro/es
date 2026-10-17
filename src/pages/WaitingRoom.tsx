@@ -9,6 +9,7 @@ import { motion } from "motion/react";
 import { Clock, ShieldAlert, LogOut, RefreshCw, CheckCircle2, User, Send } from "lucide-react";
 import { useAuth } from "@/src/context/AuthContext";
 import { UserProfile, UserStatus, UserRole } from "@/src/types";
+import { sanitizeCurrentUrl } from "@/src/lib/useUrlSanitizer";
 
 interface WaitingRoomProps {
   user: UserProfile | null;
@@ -27,22 +28,33 @@ const ROLES = [
 
 export default function WaitingRoom({ user: initialUser }: WaitingRoomProps) {
   const navigate = useNavigate();
-  const { user, refreshUser, logout, authFetch } = useAuth();
+  const { user, refreshUser, logout, authFetch, loading: authLoading } = useAuth();
   const [checking, setChecking] = useState(false);
   const [updatingNotes, setUpdatingNotes] = useState(false);
   const [role, setRole] = useState<string>(user?.requestedRole || UserRole.CONTENT_MANAGER);
   const [notes, setNotes] = useState<string>(user?.requestNotes || "");
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Auto-polling check every 6 seconds
+  // Sanitize URL on mount
   useEffect(() => {
-    if (!user) return;
+    sanitizeCurrentUrl();
+  }, []);
+
+  // Redirection checks
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (!user) {
+      navigate("/leadership-control-center", { replace: true });
+      return;
+    }
 
     if (user.status === UserStatus.APPROVED) {
       navigate("/admin", { replace: true });
       return;
     }
 
+    // Auto-polling check every 6 seconds
     const interval = setInterval(async () => {
       try {
         const fresh = await refreshUser();
@@ -55,7 +67,7 @@ export default function WaitingRoom({ user: initialUser }: WaitingRoomProps) {
     }, 6000);
 
     return () => clearInterval(interval);
-  }, [user, navigate, refreshUser]);
+  }, [user, authLoading, navigate, refreshUser]);
 
   const handleManualCheck = async () => {
     setChecking(true);
@@ -202,7 +214,10 @@ export default function WaitingRoom({ user: initialUser }: WaitingRoomProps) {
           </button>
 
           <button
-            onClick={logout}
+            onClick={async () => {
+              await logout();
+              navigate("/leadership-control-center", { replace: true });
+            }}
             className="text-xs font-bold text-slate-400 hover:text-red-600 transition-colors flex items-center gap-1.5"
           >
             <LogOut size={14} /> Switch Google Account

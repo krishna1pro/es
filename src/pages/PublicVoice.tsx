@@ -1,8 +1,21 @@
+import { useState } from "react";
 import PublicLayout from "@/src/components/layout/PublicLayout";
 import { motion } from "motion/react";
-import { MessageSquare, ThumbsUp, Send, User } from "lucide-react";
+import { MessageSquare, ThumbsUp, Send, User, CheckCircle2 } from "lucide-react";
 
 export default function PublicVoice() {
+  const [category, setCategory] = useState("Development Idea");
+  const [message, setMessage] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!message.trim()) return;
+    setSubmitted(true);
+    setMessage("");
+    setTimeout(() => setSubmitted(false), 4000);
+  };
+
   return (
     <PublicLayout>
       <section className="bg-slate-50 py-24 border-b border-slate-200">
@@ -75,23 +88,42 @@ export default function PublicVoice() {
                    <p className="text-blue-300 text-[11px] font-bold uppercase tracking-widest leading-loose mb-10">
                      Join the conversation. Suggest a project, report a civic issue, or share your vision for the district.
                    </p>
-                   <form className="space-y-6">
-                      <div className="space-y-2">
-                         <label className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-200">Category</label>
-                         <select className="w-full bg-white/5 border border-white/10 rounded-xl p-4 outline-none focus:border-blue-500 text-sm">
-                            <option>Development Idea</option>
-                            <option>Civic Complaint</option>
-                            <option>Community Event</option>
-                         </select>
-                      </div>
-                      <div className="space-y-2">
-                         <label className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-200">Your Message</label>
-                         <textarea rows={5} className="w-full bg-white/5 border border-white/10 rounded-xl p-4 outline-none focus:border-blue-500 text-sm" placeholder="Write here..."></textarea>
-                      </div>
-                      <button className="w-full py-5 bg-white text-blue-900 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-blue-50 transition-all flex items-center justify-center gap-2">
-                         Submit Post <Send size={14} />
-                      </button>
-                   </form>
+                   {submitted ? (
+                     <div className="p-6 bg-white/10 rounded-2xl border border-white/20 text-center space-y-2">
+                       <CheckCircle2 size={32} className="mx-auto text-emerald-400" />
+                       <p className="text-xs font-black uppercase tracking-wider text-white">Post Submitted for Review</p>
+                       <p className="text-[10px] text-blue-200">Thank you for contributing your voice to the constituency agenda.</p>
+                     </div>
+                   ) : (
+                     <form onSubmit={handleSubmit} className="space-y-6">
+                        <div className="space-y-2">
+                           <label className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-200">Category</label>
+                           <select 
+                             value={category}
+                             onChange={(e) => setCategory(e.target.value)}
+                             className="w-full bg-white/5 border border-white/10 rounded-xl p-4 outline-none focus:border-blue-500 text-sm text-white"
+                           >
+                              <option value="Development Idea" className="text-slate-900">Development Idea</option>
+                              <option value="Civic Complaint" className="text-slate-900">Civic Complaint</option>
+                              <option value="Community Event" className="text-slate-900">Community Event</option>
+                           </select>
+                        </div>
+                        <div className="space-y-2">
+                           <label className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-200">Your Message</label>
+                           <textarea 
+                             rows={5} 
+                             value={message}
+                             onChange={(e) => setMessage(e.target.value)}
+                             required
+                             className="w-full bg-white/5 border border-white/10 rounded-xl p-4 outline-none focus:border-blue-500 text-sm text-white placeholder-blue-300/40" 
+                             placeholder="Write here..."
+                           />
+                        </div>
+                        <button type="submit" className="w-full py-5 bg-white text-blue-900 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-blue-50 transition-all flex items-center justify-center gap-2">
+                           Submit Post <Send size={14} />
+                        </button>
+                     </form>
+                   )}
                    <p className="mt-8 text-[9px] text-blue-400 font-bold uppercase tracking-widest text-center">
                      Posts are moderated to maintain community standards.
                    </p>

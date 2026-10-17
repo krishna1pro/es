@@ -49,11 +49,9 @@ export default function PublicLayout({ children, settings: propSettings }: Publi
 
   const baseNav = mongoNavLinks && mongoNavLinks.length > 0 ? mongoNavLinks : fallbackNavLinks;
 
-  // Add system administrative / redesign routes
   const NAV_LINKS = [
     ...baseNav,
-    { name: "Redesign", path: "/redesign" },
-    { name: "Admin", path: "/leadership-control-center" }
+    { name: "Redesign", path: "/redesign" }
   ];
 
   const toggleLanguage = () => {
@@ -403,15 +401,6 @@ export default function PublicLayout({ children, settings: propSettings }: Publi
             <p className="text-[9px] font-black text-slate-300 uppercase tracking-[0.2em]">
               {settings?.footer?.copyrightText || t("footer.copyright")}
             </p>
-            <div className="flex gap-6 items-center">
-              <Link
-                to="/leadership-control-center"
-                className="text-[9px] font-black text-slate-300 hover:text-blue-700 uppercase tracking-widest transition-colors flex items-center gap-1"
-              >
-                <Menu size={10} />
-                {t("footer.management")}
-              </Link>
-            </div>
           </div>
         </div>
       </footer>

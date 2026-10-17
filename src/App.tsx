@@ -7,6 +7,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import { UserStatus } from "./types";
 import { SiteSettingsProvider } from "./context/SiteSettingsContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { useUrlSanitizer } from "./lib/useUrlSanitizer";
 
 // Public Pages
 import Home from "./pages/Home";
@@ -36,6 +37,11 @@ import UserManagement from "./pages/UserManagement";
 import AdminMediaCenter from "./pages/AdminMediaCenter";
 import SubmissionsManager from "./pages/SubmissionsManager";
 
+function UrlSanitizerListener() {
+  useUrlSanitizer();
+  return null;
+}
+
 function AppRoutes() {
   const { user, loading } = useAuth();
 
@@ -54,6 +60,7 @@ function AppRoutes() {
 
   return (
     <Router>
+      <UrlSanitizerListener />
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<Home />} />
@@ -70,9 +77,13 @@ function AppRoutes() {
         <Route path="/students" element={<StudentHub />} />
         <Route path="/redesign" element={<Redesign />} />
 
-        {/* Admin Access & Verification Flow */}
+        {/* Administrative Access & Verification Flow */}
         <Route path="/leadership-control-center" element={<AdminAccess user={user} />} />
         <Route path="/waiting-room" element={<WaitingRoom user={user} />} />
+
+        {/* Common Administrative & Login Aliases */}
+        <Route path="/admin/login" element={<Navigate to="/leadership-control-center" replace />} />
+        <Route path="/login" element={<Navigate to="/leadership-control-center" replace />} />
 
         {/* Protected Administrative Routes */}
         {isApproved ? (
@@ -89,16 +100,28 @@ function AppRoutes() {
             <Route path="*" element={<Navigate to="/admin" replace />} />
           </Route>
         ) : (
-          <Route
-            path="/admin/*"
-            element={
-              user && user.status === UserStatus.PENDING ? (
-                <Navigate to="/waiting-room" replace />
-              ) : (
-                <Navigate to="/leadership-control-center" replace />
-              )
-            }
-          />
+          <>
+            <Route
+              path="/admin"
+              element={
+                user && user.status === UserStatus.PENDING ? (
+                  <Navigate to="/waiting-room" replace />
+                ) : (
+                  <Navigate to="/leadership-control-center" replace />
+                )
+              }
+            />
+            <Route
+              path="/admin/*"
+              element={
+                user && user.status === UserStatus.PENDING ? (
+                  <Navigate to="/waiting-room" replace />
+                ) : (
+                  <Navigate to="/leadership-control-center" replace />
+                )
+              }
+            />
+          </>
         )}
 
         <Route path="*" element={<Navigate to="/" replace />} />

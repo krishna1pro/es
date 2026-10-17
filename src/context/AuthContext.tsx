@@ -5,7 +5,13 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { onAuthStateChanged, signOut, User as FirebaseUser } from "firebase/auth";
-import { auth, loginWithGoogle as firebaseLoginWithGoogle } from "@/src/db/firebase";
+import {
+  auth,
+  loginWithGooglePopup,
+  loginWithGoogleRedirect,
+  getGoogleRedirectResult
+} from "@/src/db/firebase";
+import { cleanupOAuthCallbackParams } from "@/src/lib/useUrlSanitizer";
 import { UserProfile, UserStatus, UserRole } from "../types";
 
 interface AuthContextValue {
@@ -17,6 +23,7 @@ interface AuthContextValue {
   isAdmin: boolean;
   isApproved: boolean;
   loginWithGoogle: () => Promise<UserProfile | null>;
+  loginWithRedirect: () => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<UserProfile | null>;
   getIdToken: () => Promise<string | null>;
@@ -36,7 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       return await auth.currentUser.getIdToken();
     } catch (err) {
-      console.error("[AuthContext] Failed to get ID token:", err);
+      console.error("[AuthContext] Failed to retrieve Firebase ID token:", err);
       return null;
     }
   }, []);
@@ -91,16 +98,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  /**
+   * Refreshes the active user's authorization status from MongoDB via /api/auth/me
+   */
   const refreshUser = useCallback(async (): Promise<UserProfile | null> => {
     if (!auth.currentUser) {
       setUser(null);
       return null;
     }
-    return syncUserWithBackend(auth.currentUser);
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const res = await fetch("/api/auth/me", {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.user) {
+          setUser(data.user);
+          return data.user;
+        }
+      }
+      // If /api/auth/me returns 401/404, fall back to sync
+      return await syncUserWithBackend(auth.currentUser);
+    } catch (err) {
+      console.error("[AuthContext] refreshUser failed, falling back to sync:", err);
+      return await syncUserWithBackend(auth.currentUser);
+    }
   }, [syncUserWithBackend]);
 
+  // Initial listener for Firebase Auth and Redirect Results
   useEffect(() => {
+    let isMounted = true;
+
+    // Check if user is returning from a signInWithRedirect flow
+    getGoogleRedirectResult()
+      .then(async (redirectUser) => {
+        if (!isMounted) return;
+        if (redirectUser) {
+          setFirebaseUser(redirectUser);
+          await syncUserWithBackend(redirectUser);
+        }
+        // Firebase has finished processing redirect flow, clean up residual OAuth parameters
+        cleanupOAuthCallbackParams();
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        console.error("[AuthContext] Redirect login handler error:", err);
+        setError(err.message || "Redirect authentication failed");
+        cleanupOAuthCallbackParams();
+      });
+
     const unsubscribe = onAuthStateChanged(auth, async (currentFirebaseUser) => {
+      if (!isMounted) return;
       setFirebaseUser(currentFirebaseUser);
       if (currentFirebaseUser) {
         try {
@@ -114,15 +165,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, [syncUserWithBackend]);
 
   const handleLoginWithGoogle = async (): Promise<UserProfile | null> => {
     setLoading(true);
     setError(null);
     try {
-      const fbUser = await firebaseLoginWithGoogle();
-      if (!fbUser) throw new Error("No user returned from Google sign-in");
+      const fbUser = await loginWithGooglePopup();
+      if (!fbUser) throw new Error("No user profile returned from Google sign-in.");
       setFirebaseUser(fbUser);
       const synced = await syncUserWithBackend(fbUser);
       return synced;
@@ -132,6 +186,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw err;
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLoginWithRedirect = async (): Promise<void> => {
+    setError(null);
+    try {
+      await loginWithGoogleRedirect();
+    } catch (err: any) {
+      console.error("[AuthContext] Google redirect sign-in failed:", err);
+      setError(err.message || "Google redirect sign-in failed");
+      throw err;
     }
   };
 
@@ -160,6 +225,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAdmin,
         isApproved,
         loginWithGoogle: handleLoginWithGoogle,
+        loginWithRedirect: handleLoginWithRedirect,
         logout: handleLogout,
         refreshUser,
         getIdToken,

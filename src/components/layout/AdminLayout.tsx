@@ -6,7 +6,7 @@ import {
   LogOut, Menu, Bell, Image as ImageIcon,
   ShieldCheck, Activity, UserCheck, Inbox
 } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { sanitizeCurrentUrl } from "@/src/lib/useUrlSanitizer";
 import { useAuth } from "@/src/context/AuthContext";
 
 interface AdminLayoutProps {
@@ -31,11 +31,15 @@ export default function AdminLayout({ children, user: propUser, title }: AdminLa
   const { user: contextUser, logout } = useAuth();
   const user = propUser || contextUser;
 
+  useEffect(() => {
+    sanitizeCurrentUrl();
+  }, []);
+
   const handleLogout = async () => {
     try {
       await logout();
     } catch (err) {
-      console.error(err);
+      console.error("[AdminLayout] Logout error:", err);
     }
     window.location.href = "/";
   };
@@ -127,6 +131,14 @@ export default function AdminLayout({ children, user: propUser, title }: AdminLa
                 alt="Profile" 
                 className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg object-cover border border-slate-200 shadow-sm"
               />
+              <button
+                onClick={handleLogout}
+                title="Sign out of Leadership Control Center"
+                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors ml-1"
+                aria-label="Logout"
+              >
+                <LogOut size={16} />
+              </button>
             </div>
           </div>
         </header>

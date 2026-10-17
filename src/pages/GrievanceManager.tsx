@@ -1,62 +1,106 @@
 import { useState, useEffect } from "react";
 import AdminLayout from "@/src/components/layout/AdminLayout";
-import { db } from "@/src/db/firebase";
-import { collection, getDocs, doc, updateDoc, query, orderBy } from "firebase/firestore";
+import { useAuth } from "@/src/context/AuthContext";
 import { Grievance, GrievanceStatus } from "@/src/types";
 import { MessageSquare, Clock, CheckCircle, Search, Filter, AlertCircle, User, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 export default function GrievanceManager() {
+  const { authFetch, user: authUser } = useAuth();
   const [grievances, setGrievances] = useState<Grievance[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState("");
+
+  const fetchGrievances = async () => {
+    try {
+      const res = await authFetch("/api/admin/submissions/grievances");
+      if (res.ok) {
+        const data = await res.json();
+        const mapped = (data.submissions || []).map((item: any) => ({
+          id: item.trackingNumber || item._id,
+          trackingNumber: item.trackingNumber,
+          userId: item.fullName,
+          subject: item.subject,
+          description: item.description,
+          status: item.status || GrievanceStatus.SUBMITTED,
+          createdAt: item.createdAt,
+          notes: item.notes || []
+        }));
+        setGrievances(mapped);
+        if (mapped.length > 0 && !selectedId) {
+          setSelectedId(mapped[0].id);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching grievances:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchGrievances = async () => {
-      const q = query(collection(db, "grievances"), orderBy("createdAt", "desc"));
-      const snapshot = await getDocs(q);
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Grievance));
-      setGrievances(data);
-      setLoading(false);
-    };
     fetchGrievances();
   }, []);
 
   const updateStatus = async (id: string, status: GrievanceStatus) => {
-    await updateDoc(doc(db, "grievances", id), { status });
-    setGrievances(grievances.map(g => g.id === id ? { ...g, status } : g));
+    try {
+      const res = await authFetch(`/api/admin/submissions/grievances/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status })
+      });
+      if (res.ok) {
+        setGrievances(grievances.map(g => g.id === id ? { ...g, status } : g));
+      }
+    } catch (err) {
+      console.error("Error updating status:", err);
+    }
+  };
+
+  const sendNote = async (id: string) => {
+    if (!noteText.trim()) return;
+    try {
+      const res = await authFetch(`/api/admin/submissions/grievances/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: noteText })
+      });
+      if (res.ok) {
+        setNoteText("");
+        fetchGrievances();
+      }
+    } catch (err) {
+      console.error("Error adding note:", err);
+    }
   };
 
   const selectedGrievance = grievances.find(g => g.id === selectedId);
 
   return (
-    <AdminLayout user={null} title="Grievance Redressal Officer">
+    <AdminLayout user={authUser} title="Grievance Redressal Officer">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-160px)]">
         {/* List Column */}
         <div className="lg:col-span-1 bg-white rounded-3xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
            <div className="p-6 border-b border-slate-100 bg-slate-50/50 space-y-4">
               <div className="flex justify-between items-center">
                  <h3 className="font-display font-bold text-slate-900">Inbound Cases</h3>
-                 <span className="px-2 py-0.5 bg-primary-blue text-white text-[10px] font-bold rounded-full">{grievances.length}</span>
-              </div>
-              <div className="relative">
-                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-                 <input 
-                   type="text" 
-                   placeholder="Search ID, Subject..." 
-                   className="w-full bg-white border border-slate-200 rounded-xl py-2 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-primary-blue/10" 
-                 />
+                 <span className="px-2 py-0.5 bg-blue-900 text-white text-[10px] font-bold rounded-full">{grievances.length}</span>
               </div>
            </div>
 
            <div className="flex-grow overflow-y-auto p-4 space-y-2">
-              {grievances.map((g) => (
+              {loading ? (
+                <p className="text-center text-slate-400 py-10 text-xs">Loading grievances from MongoDB...</p>
+              ) : grievances.length === 0 ? (
+                <p className="text-center text-slate-400 py-10 text-xs italic">No grievance submissions found.</p>
+              ) : grievances.map((g) => (
                 <button
                   key={g.id}
                   onClick={() => setSelectedId(g.id)}
                   className={`w-full text-left p-5 rounded-2xl transition-all border ${
                     selectedId === g.id 
-                      ? "bg-primary-blue text-white border-primary-blue shadow-lg shadow-primary-blue/20" 
+                      ? "bg-blue-900 text-white border-blue-900 shadow-lg shadow-blue-900/20" 
                       : "bg-white text-slate-600 hover:bg-slate-50 border-slate-200"
                   }`}
                 >
@@ -64,12 +108,11 @@ export default function GrievanceManager() {
                       <span className={`text-[10px] font-bold uppercase tracking-widest ${selectedId === g.id ? "text-blue-200" : "text-slate-400"}`}>
                         {g.trackingNumber}
                       </span>
-                      <span className="text-[10px] font-medium opacity-60">2h ago</span>
                    </div>
                    <p className="font-bold text-sm leading-tight line-clamp-1 mb-2">{g.subject}</p>
                    <div className="flex items-center gap-2">
                       <div className={`w-1.5 h-1.5 rounded-full ${
-                        g.status === GrievanceStatus.RESOLVED ? "bg-primary-green" : "bg-amber-500"
+                        g.status === GrievanceStatus.RESOLVED ? "bg-green-500" : "bg-amber-500"
                       }`} />
                       <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">{g.status}</span>
                    </div>
@@ -97,11 +140,10 @@ export default function GrievanceManager() {
                       <div className="flex gap-3">
                          <button 
                            onClick={() => updateStatus(selectedGrievance.id, GrievanceStatus.RESOLVED)}
-                           className="btn-secondary px-4 py-2 flex items-center gap-2"
+                           className="px-4 py-2 bg-green-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-green-700"
                          >
                             <CheckCircle size={18} /> Resolve
-                         </button>
-                         <button className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-slate-500 font-medium hover:bg-slate-50">Transfer Case</button>
+                          </button>
                       </div>
                    </div>
 
@@ -116,25 +158,30 @@ export default function GrievanceManager() {
                             <div className="bg-slate-50 p-6 rounded-3xl rounded-tl-none border border-slate-100">
                                <p className="text-slate-600 leading-relaxed italic">"{selectedGrievance.description}"</p>
                             </div>
-                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Submitted by {selectedGrievance.userId || "Anonymous Citizen"} • 2:45 PM</div>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Submitted by {selectedGrievance.userId || "Citizen"}</div>
                          </div>
                       </div>
 
                       <div className="bg-slate-900 rounded-[2rem] p-8 text-white space-y-6">
                          <div className="flex items-center gap-4">
-                            <div className="p-2 bg-white/10 rounded-xl text-primary-green"><AlertCircle size={20} /></div>
+                            <div className="p-2 bg-white/10 rounded-xl text-green-400"><AlertCircle size={20} /></div>
                             <p className="font-bold text-lg">Officer Notes & Logs</p>
                          </div>
                          <div className="space-y-4 px-2">
-                             <div className="flex gap-4">
-                               <div className="w-1px bg-white/10 shrink-0 self-stretch mt-3 ml-2 relative">
-                                  <div className="absolute top-0 -left-1 w-2 h-2 rounded-full bg-primary-green" />
+                             {(selectedGrievance.notes || []).map((note: any, idx: number) => (
+                               <div key={idx} className="flex gap-4">
+                                  <div className="w-1px bg-white/10 shrink-0 self-stretch mt-3 ml-2 relative">
+                                     <div className="absolute top-0 -left-1 w-2 h-2 rounded-full bg-green-400" />
+                                  </div>
+                                  <div>
+                                     <p className="text-xs font-bold text-white/90">{note.text}</p>
+                                     <p className="text-[10px] text-white/50 font-medium">{note.author} • {new Date(note.createdAt).toLocaleString()}</p>
+                                  </div>
                                </div>
-                               <div>
-                                  <p className="text-xs font-bold text-white/90">Case logged and status set to {selectedGrievance.status}</p>
-                                  <p className="text-[10px] text-white/50 font-medium">Automatic system log • June 15, 2026</p>
-                               </div>
-                             </div>
+                             ))}
+                             {(!selectedGrievance.notes || selectedGrievance.notes.length === 0) && (
+                               <p className="text-xs text-slate-400 italic">No notes added yet.</p>
+                             )}
                          </div>
                       </div>
                    </div>
@@ -143,19 +190,23 @@ export default function GrievanceManager() {
                       <div className="relative">
                          <input 
                            type="text" 
-                           placeholder="Write a message to the citizen (public response)..." 
-                           className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 pl-6 pr-32 outline-none focus:ring-2 focus:ring-primary-blue/10"
+                           value={noteText}
+                           onChange={e => setNoteText(e.target.value)}
+                           placeholder="Add internal officer note..." 
+                           className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 pl-6 pr-32 outline-none focus:ring-2 focus:ring-blue-700/10"
                          />
-                         <button className="absolute right-3 top-3 btn-primary py-2 px-6 text-xs">Send Response</button>
+                         <button 
+                           onClick={() => sendNote(selectedGrievance.id)}
+                           className="absolute right-3 top-3 py-2 px-6 bg-blue-900 text-white rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-blue-800"
+                         >
+                            Add Note
+                         </button>
                       </div>
                    </div>
                 </motion.div>
               ) : (
-                <div className="flex flex-col items-center justify-center h-full text-center p-12 space-y-4">
-                   <div className="w-20 h-20 bg-slate-50 text-slate-100 rounded-full flex items-center justify-center">
-                      <MessageSquare size={48} />
-                   </div>
-                   <p className="text-slate-300 font-medium italic">Select a case from the inbound list to view details and take action.</p>
+                <div className="flex items-center justify-center h-full text-slate-400">
+                   Select a grievance item to review details.
                 </div>
               )}
            </AnimatePresence>

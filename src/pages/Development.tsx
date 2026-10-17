@@ -1,15 +1,80 @@
 import PublicLayout from "@/src/components/layout/PublicLayout";
 import { motion } from "motion/react";
-import { Activity, Construction, Droplets, HeartPulse, GraduationCap, Tractor, Briefcase, Home as HomeIcon, MapPin, ArrowRight } from "lucide-react";
+import { Activity, Construction, Droplets, HeartPulse, GraduationCap, Tractor, Home as HomeIcon, MapPin, ArrowRight, AlertCircle } from "lucide-react";
+import { useState, useEffect } from "react";
+
+const ICON_MAP: Record<string, any> = {
+  "Infrastructure & Roads": Construction,
+  "Water & Sanitation": Droplets,
+  "Healthcare Facilities": HeartPulse,
+  "Education & Schools": GraduationCap,
+  "Agriculture & Allied": Tractor,
+  "Housing Projects": HomeIcon
+};
 
 export default function Development() {
-  const SECTORS = [
-    { name: "Infrastructure & Roads", icon: Construction, color: "blue", progress: 85, projects: 12 },
-    { name: "Water & Sanitation", icon: Droplets, color: "sky", progress: 64, projects: 8 },
-    { name: "Healthcare Facilities", icon: HeartPulse, color: "red", progress: 92, projects: 5 },
-    { name: "Education & Schools", icon: GraduationCap, color: "indigo", progress: 78, projects: 15 },
-    { name: "Agriculture & Allied", icon: Tractor, color: "emerald", progress: 56, projects: 20 },
-    { name: "Housing Projects", icon: HomeIcon, color: "orange", progress: 42, projects: 10 },
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/public/development")
+      .then(res => {
+        if (!res.ok) throw new Error("Failed to load development data");
+        return res.json();
+      })
+      .then(json => {
+        setData(json.data || json);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("Error fetching development data:", err);
+        setError("Failed to load development page content.");
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) {
+    return (
+      <PublicLayout>
+        <div className="py-32 flex justify-center items-center bg-slate-950 text-white min-h-[60vh]">
+          <Activity className="animate-spin text-blue-500" size={48} />
+        </div>
+      </PublicLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <PublicLayout>
+        <div className="py-32 text-center text-red-500 bg-slate-950 min-h-[60vh]">
+          <AlertCircle size={48} className="mx-auto mb-4" />
+          <p className="font-black uppercase text-xs tracking-widest">{error}</p>
+        </div>
+      </PublicLayout>
+    );
+  }
+
+  const content = data?.data || data || {};
+  const sectors = content.sectors || [
+    { name: "Infrastructure & Roads", progress: 85, projects: 12 },
+    { name: "Water & Sanitation", progress: 64, projects: 8 },
+    { name: "Healthcare Facilities", progress: 92, projects: 5 },
+    { name: "Education & Schools", progress: 78, projects: 15 },
+    { name: "Agriculture & Allied", progress: 56, projects: 20 },
+    { name: "Housing Projects", progress: 42, projects: 10 }
+  ];
+
+  const capitalAllocation = content.capitalAllocation || [
+    { label: "Infrastructure", val: "45%" },
+    { label: "Healthcare", val: "25%" },
+    { label: "Digital Literacy", val: "20%" }
+  ];
+
+  const stats = [
+    { label: "Active Sites", value: content.activeSites || "154", color: "text-blue-500" },
+    { label: "Capital Deployed", value: content.capitalDeployed || "₹1.4B", color: "text-white" },
+    { label: "Success Rate", value: content.successRate || "98%", color: "text-green-500" }
   ];
 
   return (
@@ -25,18 +90,14 @@ export default function Development() {
                 animate={{ opacity: 1, y: 0 }}
                 className="text-4xl md:text-7xl font-black uppercase tracking-tighter mb-8 leading-[0.9]"
               >
-                Development <br /><span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-blue-600">Metrics Hub</span>
+                {content.pageTitle || "Development Metrics Hub"}
               </motion.h1>
               <p className="text-lg text-slate-400 font-medium leading-relaxed max-w-xl">
-                Transparency in every brick and drop. Tracking the transformation of our constituency across key sectors.
+                {content.pageSubtitle || "Transparency in every brick and drop. Tracking the transformation of our constituency across key sectors."}
               </p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 shrink-0">
-               {[
-                 { label: "Active Sites", value: "154", color: "text-blue-500" },
-                 { label: "Capital Deployed", value: "₹1.4B", color: "text-white" },
-                 { label: "Success Rate", value: "98%", color: "text-green-500" }
-               ].map((stat, i) => (
+               {stats.map((stat, i) => (
                  <div key={i} className="bg-white/5 border border-white/10 p-6 rounded-2xl backdrop-blur-xl">
                     <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2">{stat.label}</p>
                     <p className={`text-2xl font-black tracking-tight ${stat.color}`}>{stat.value}</p>
@@ -52,27 +113,30 @@ export default function Development() {
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-12">
              <div className="xl:col-span-4 space-y-4">
                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.3em] mb-8">Primary Sectors</h3>
-                {SECTORS.map((sector, i) => (
-                  <motion.div 
-                    key={i}
-                    whileHover={{ scale: 1.02 }}
-                    className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl transition-all group flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-6">
-                       <div className="w-12 h-12 bg-slate-50 text-slate-400 group-hover:text-blue-700 group-hover:bg-blue-50 rounded-xl flex items-center justify-center border border-slate-100 transition-all">
-                          <sector.icon size={22} />
-                       </div>
-                       <div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">{sector.name}</p>
-                          <p className="text-sm font-black text-slate-800 uppercase tracking-tight">{sector.projects} Active Projects</p>
-                       </div>
-                    </div>
-                    <div className="text-right">
-                       <p className="text-xl font-black text-slate-900 leading-none">{sector.progress}%</p>
-                       <p className="text-[9px] font-bold text-green-600 uppercase mt-1">On Track</p>
-                    </div>
-                  </motion.div>
-                ))}
+                {sectors.map((sector: any, i: number) => {
+                  const IconComp = ICON_MAP[sector.name] || Construction;
+                  return (
+                    <motion.div 
+                      key={i}
+                      whileHover={{ scale: 1.02 }}
+                      className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl transition-all group flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-6">
+                         <div className="w-12 h-12 bg-slate-50 text-slate-400 group-hover:text-blue-700 group-hover:bg-blue-50 rounded-xl flex items-center justify-center border border-slate-100 transition-all">
+                            <IconComp size={22} />
+                         </div>
+                         <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">{sector.name}</p>
+                            <p className="text-sm font-black text-slate-800 uppercase tracking-tight">{sector.projects} Active Projects</p>
+                         </div>
+                      </div>
+                      <div className="text-right">
+                         <p className="text-xl font-black text-slate-900 leading-none">{sector.progress}%</p>
+                         <p className="text-[9px] font-bold text-green-600 uppercase mt-1">On Track</p>
+                      </div>
+                    </motion.div>
+                  );
+                })}
              </div>
 
              <div className="xl:col-span-8 space-y-12">
@@ -112,11 +176,7 @@ export default function Development() {
                         Our fiscal strategy focuses on high-impact infrastructure and human capital transformation.
                       </p>
                       <div className="space-y-6">
-                         {[
-                           { label: "Infrastructure", val: "45%" },
-                           { label: "Healthcare", val: "25%" },
-                           { label: "Digital Literacy", val: "20%" },
-                         ].map((item, i) => (
+                         {capitalAllocation.map((item: any, i: number) => (
                            <div key={i} className="flex justify-between items-end border-b border-white/10 pb-4">
                               <span className="text-[10px] font-black uppercase tracking-widest">{item.label}</span>
                               <span className="text-2xl font-black tracking-tighter">{item.val}</span>
@@ -132,7 +192,7 @@ export default function Development() {
                          <h4 className="text-xl font-black uppercase tracking-tight text-slate-800">Growth Index</h4>
                       </div>
                       <p className="text-slate-500 text-[11px] font-bold uppercase tracking-widest leading-[1.8] mb-10">
-                        Quarterly assessment shows a 12% increase in rural connectivity and 18% improvement in public health accessibility.
+                        {content.growthIndexText || "Quarterly assessment shows a 12% increase in rural connectivity and 18% improvement in public health accessibility."}
                       </p>
                       <button className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-blue-700 transition-colors">
                         Download Quarterly Report <ArrowRight size={14} />
@@ -146,4 +206,3 @@ export default function Development() {
     </PublicLayout>
   );
 }
-

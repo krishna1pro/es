@@ -84,11 +84,36 @@ export interface UserProfile {
   photoURL: string;
   role: UserRole;
   status: UserStatus;
-  permissions: string[]; // e.g., "CMS_EDIT", "VOLUNTEER_APPROVE"
+  permissions: string[]; // e.g., ["*"] or specific action permissions
+  assignedSections?: string[]; // Granular Home Page section IDs assigned to edit
+  requestedRole?: string;
+  requestNotes?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectedReason?: string;
+  notes?: string;
   createdAt: string;
   lastLogin: string;
-  notes?: string;
 }
+
+export interface AdminUserDocument extends UserProfile {
+  _id?: string;
+  updatedAt?: string;
+}
+
+export interface AuditLogDocument {
+  _id?: string;
+  timestamp: string;
+  actorUid: string;
+  actorEmail: string;
+  actorRole: string;
+  action: string;
+  targetEntity: string;
+  targetId?: string;
+  details?: Record<string, any> | string;
+  ipAddress?: string;
+}
+
 
 export interface CMSSection {
   id: string;
@@ -130,6 +155,7 @@ export interface Grievance {
   status: GrievanceStatus;
   trackingNumber: string;
   createdAt: string;
+  notes?: any[];
 }
 
 export interface Volunteer {

@@ -1,9 +1,28 @@
 import PublicLayout from "@/src/components/layout/PublicLayout";
 import OurVision from "@/src/components/home/OurVision";
 import { motion } from "motion/react";
-import { ShieldCheck, Target, Lightbulb } from "lucide-react";
+import { ShieldCheck, Target, Lightbulb, Activity } from "lucide-react";
+import { useState, useEffect } from "react";
 
 export default function Vision() {
+  const [visionPage, setVisionPage] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/public/vision")
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.visionPage) {
+          setVisionPage(data.visionPage);
+        }
+      })
+      .catch(err => console.error("Failed to load vision page:", err))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const pageTitle = visionPage?.pageTitle || "Vision for a Better Tomorrow";
+  const pageSubtitle = visionPage?.pageSubtitle || "Building a prosperous, inclusive, and sustainable constituency through innovation, integrity, and hard work.";
+
   return (
     <PublicLayout>
       <section className="bg-blue-900 py-24 text-white">
@@ -13,11 +32,10 @@ export default function Vision() {
             animate={{ opacity: 1, y: 0 }}
             className="text-4xl md:text-6xl font-black uppercase tracking-tighter mb-6"
           >
-            Vision for a Better Tomorrow
+            {pageTitle}
           </motion.h1>
           <p className="text-xl text-blue-200 max-w-3xl mx-auto font-medium">
-            Building a prosperous, inclusive, and sustainable constituency through innovation, 
-            integrity, and hard work.
+            {pageSubtitle}
           </p>
         </div>
       </section>

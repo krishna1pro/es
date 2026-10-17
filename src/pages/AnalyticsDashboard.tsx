@@ -6,17 +6,21 @@ import {
   Scroll, Globe, Zap, Download, RefreshCw, Sparkles 
 } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "@/src/context/AuthContext";
 
 interface AnalyticsDashboardProps {
   user: UserProfile | null;
 }
 
 export default function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
+  const { authFetch } = useAuth();
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [aiReport, setAiReport] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const generateAIReport = async () => {
     setIsGeneratingAI(true);
+    setAiError(null);
     try {
       const mockData = {
         visitors: 12450,
@@ -25,15 +29,22 @@ export default function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
         volunteerGrowth: "+12%"
       };
       
-      const response = await fetch("/api/admin/ai-insights", {
+      const response = await authFetch("/api/admin/ai-insights", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ analyticsData: mockData, reportType: "Weekly Summary" })
       });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Insight generation failed (HTTP ${response.status})`);
+      }
+
       const data = await response.json();
       setAiReport(data.report);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error("[Analytics] AI Insight Error:", err);
+      setAiError(err.message || "Failed to generate report. Super Admin or Administrator authorization required.");
     } finally {
       setIsGeneratingAI(false);
     }
@@ -72,6 +83,13 @@ export default function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
              </button>
           </div>
         </div>
+
+        {aiError && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-xs font-semibold flex items-center justify-between">
+            <span>{aiError}</span>
+            <button onClick={() => setAiError(null)} className="text-red-500 hover:text-red-800 font-bold ml-4">✕</button>
+          </div>
+        )}
 
         {/* AI Report Section */}
         {aiReport && (

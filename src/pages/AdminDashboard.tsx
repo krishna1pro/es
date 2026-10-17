@@ -3,8 +3,7 @@ import AdminLayout from "@/src/components/layout/AdminLayout";
 import { motion } from "motion/react";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { db } from "@/src/db/firebase";
-import { collection, query, where, limit, onSnapshot, doc, updateDoc } from "firebase/firestore";
+import { useAuth } from "@/src/context/AuthContext";
 import { 
   Users, Activity, MessageSquare, Heart, 
   TrendingUp, ArrowUpRight, ArrowDownRight,
@@ -15,34 +14,44 @@ interface AdminDashboardProps {
   user: UserProfile | null;
 }
 
-export default function AdminDashboard({ user }: AdminDashboardProps) {
+export default function AdminDashboard({ user: propUser }: AdminDashboardProps) {
   const navigate = useNavigate();
+  const { user: authUser, authFetch } = useAuth();
+  const user = authUser || propUser;
   const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const q = query(
-      collection(db, "users"),
-      where("status", "==", UserStatus.PENDING),
-      limit(5)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const users = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
-      setPendingUsers(users);
+  const fetchPending = async () => {
+    try {
+      setLoading(true);
+      const res = await authFetch("/api/admin/users?status=PENDING");
+      if (res.ok) {
+        const data = await res.json();
+        setPendingUsers(data.users || []);
+      }
+    } catch (err) {
+      console.error("[AdminDashboard] Error loading pending clearances:", err);
+    } finally {
       setLoading(false);
-    });
+    }
+  };
 
-    return () => unsubscribe();
+  useEffect(() => {
+    fetchPending();
   }, []);
 
   const handleApprove = async (uid: string) => {
     try {
-      await updateDoc(doc(db, "users", uid), {
-        status: UserStatus.APPROVED
+      const res = await authFetch(`/api/admin/users/${uid}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: UserStatus.APPROVED })
       });
+      if (res.ok) {
+        setPendingUsers(prev => prev.filter(u => u.uid !== uid));
+      }
     } catch (err) {
-      console.error(err);
+      console.error("[AdminDashboard] Approval error:", err);
     }
   };
 

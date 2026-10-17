@@ -33,15 +33,38 @@ export default function ArticleManager() {
   };
 
   return (
-    <AdminLayout user={null} title="Content & News Hub">
+    <AdminLayout user={null} title="Article Engine (Legacy / Deprecated)">
       <div className="space-y-8">
+        {/* Deprecation & Migration Notice */}
+        <div className="p-6 bg-amber-50 border-2 border-amber-300 rounded-[2rem] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 bg-amber-200 text-amber-900 rounded-md text-[10px] font-black uppercase tracking-wider">
+                DEPRECATION NOTICE
+              </span>
+              <h3 className="font-black text-amber-950 uppercase text-sm tracking-tight">
+                Unified MongoDB Media Center Active
+              </h3>
+            </div>
+            <p className="text-amber-900 text-xs max-w-2xl">
+              Public news, press releases, video clips, and media galleries are now published exclusively through the MongoDB-backed <strong>Broadcast Media Center</strong>. Existing historical Firestore records are preserved below in read-only mode for audit compliance.
+            </p>
+          </div>
+          <a
+            href="/admin/media"
+            className="px-5 py-3 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md shrink-0 transition-colors"
+          >
+            Open Media Center →
+          </a>
+        </div>
+
         {/* Actions Bar */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
            <div className="lg:col-span-2 relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
               <input 
                 type="text" 
-                placeholder="Search across news, events, schemes..."
+                placeholder="Search across legacy articles..."
                 className="w-full bg-white border border-slate-200 rounded-2xl p-4 pl-12 outline-none focus:ring-2 focus:ring-primary-blue/10 shadow-sm"
               />
            </div>
@@ -57,10 +80,6 @@ export default function ArticleManager() {
                  <option value="SCHOLARSHIP">Scholarships</option>
               </select>
            </div>
-           <button className="btn-primary py-4 rounded-2xl flex items-center justify-center gap-2">
-              <Plus size={20} />
-              Create Article
-           </button>
         </div>
 
         {/* Article Table/List */}

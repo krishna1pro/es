@@ -1,71 +1,212 @@
-import { UserProfile, UserStatus } from "@/src/types";
-import { motion } from "motion/react";
-import { Clock, ShieldAlert, LogOut, RefreshCw } from "lucide-react";
-import { auth, db } from "@/src/db/firebase";
-import { signOut } from "firebase/auth";
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
-import { doc, onSnapshot } from "firebase/firestore";
+import { motion } from "motion/react";
+import { Clock, ShieldAlert, LogOut, RefreshCw, CheckCircle2, User, Send } from "lucide-react";
+import { useAuth } from "@/src/context/AuthContext";
+import { UserProfile, UserStatus, UserRole } from "@/src/types";
 
 interface WaitingRoomProps {
   user: UserProfile | null;
 }
 
-export default function WaitingRoom({ user }: WaitingRoomProps) {
-  const navigate = useNavigate();
+const ROLES = [
+  { role: UserRole.CONTENT_MANAGER, label: "Content Manager" },
+  { role: UserRole.MEDIA_MANAGER, label: "Media Publisher" },
+  { role: UserRole.EVENT_MANAGER, label: "Event Coordinator" },
+  { role: UserRole.VOLUNTEER_MANAGER, label: "Volunteer Lead" },
+  { role: UserRole.CADRE_MANAGER, label: "Cadre Corner Manager" },
+  { role: UserRole.RESEARCH_MANAGER, label: "Policy & Research Analyst" },
+  { role: UserRole.OFFICE_MANAGER, label: "Office Staff" },
+  { role: UserRole.VIEWER, label: "General Observer" }
+];
 
+export default function WaitingRoom({ user: initialUser }: WaitingRoomProps) {
+  const navigate = useNavigate();
+  const { user, refreshUser, logout, authFetch } = useAuth();
+  const [checking, setChecking] = useState(false);
+  const [updatingNotes, setUpdatingNotes] = useState(false);
+  const [role, setRole] = useState<string>(user?.requestedRole || UserRole.CONTENT_MANAGER);
+  const [notes, setNotes] = useState<string>(user?.requestNotes || "");
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Auto-polling check every 6 seconds
   useEffect(() => {
     if (!user) return;
 
-    const unsubscribe = onSnapshot(doc(db, "users", user.uid), (doc) => {
-      if (doc.exists()) {
-        const data = doc.data() as UserProfile;
-        if (data.status === UserStatus.APPROVED) {
-          window.location.href = "/admin"; // Force reload for fresh state
+    if (user.status === UserStatus.APPROVED) {
+      navigate("/admin", { replace: true });
+      return;
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const fresh = await refreshUser();
+        if (fresh && fresh.status === UserStatus.APPROVED) {
+          navigate("/admin", { replace: true });
         }
+      } catch (err) {
+        // Polling error silently handled
       }
-    });
+    }, 6000);
 
-    return () => unsubscribe();
-  }, [user]);
+    return () => clearInterval(interval);
+  }, [user, navigate, refreshUser]);
 
-  const handleLogout = async () => {
-    localStorage.removeItem("mock_user_id");
-    await signOut(auth);
-    window.location.href = "/";
+  const handleManualCheck = async () => {
+    setChecking(true);
+    try {
+      const fresh = await refreshUser();
+      if (fresh && fresh.status === UserStatus.APPROVED) {
+        navigate("/admin", { replace: true });
+      }
+    } finally {
+      setTimeout(() => setChecking(false), 800);
+    }
   };
 
+  const handleUpdatePreferences = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUpdatingNotes(true);
+    try {
+      const res = await authFetch("/api/auth/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requestedRole: role,
+          requestNotes: notes
+        })
+      });
+      if (res.ok) {
+        setSaveSuccess(true);
+        await refreshUser();
+        setTimeout(() => setSaveSuccess(false), 3000);
+      }
+    } catch (err) {
+      console.error("Failed to update role request:", err);
+    } finally {
+      setUpdatingNotes(false);
+    }
+  };
+
+  const currentUser = user || initialUser;
+
   return (
-    <div className="min-h-screen bg-[#F9F9F8] flex flex-col items-center justify-center p-8">
+    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 sm:p-8">
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
+        initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-xl w-full text-center space-y-12"
+        className="max-w-xl w-full bg-white rounded-[2.5rem] p-8 sm:p-12 shadow-2xl border border-slate-100 space-y-8"
       >
-        <div className="space-y-6">
-          <div className="w-12 h-12 bg-white border border-slate-200 rounded-xl flex items-center justify-center mx-auto shadow-sm">
-            <Clock size={24} className="text-slate-400" />
+        {/* Status Badge */}
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 bg-amber-50 border-2 border-amber-200 rounded-2xl flex items-center justify-center mx-auto shadow-sm text-amber-600">
+            <Clock size={32} />
           </div>
-          <h1 className="text-3xl font-medium text-slate-900 tracking-tight">
-            Thank you for registering.
+
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-50 text-amber-700 text-[10px] font-black uppercase tracking-widest border border-amber-200">
+            Clearance Pending
+          </div>
+
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight uppercase">
+            Awaiting Super Admin Approval
           </h1>
-          <p className="text-lg text-slate-500 leading-relaxed">
-            Your request for access as <span className="font-semibold text-slate-800">{user?.role}</span> is under review. You will receive access after administrator approval.
+
+          <p className="text-sm text-slate-500 leading-relaxed">
+            Your Google Account has been registered with the MongoDB security layer. Access to the Leadership Control Center requires approval from the Super Admin.
           </p>
         </div>
 
-        <div className="pt-8 border-t border-slate-200 flex flex-col items-center gap-6">
-           <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-             <RefreshCw size={12} className="animate-spin" />
-             Awaiting System Approval
-           </div>
-           
-           <button
-             onClick={handleLogout}
-             className="text-sm font-medium text-slate-400 hover:text-slate-900 transition-colors"
-           >
-             Return Home
-           </button>
+        {/* Profile Card */}
+        {currentUser && (
+          <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <img
+                src={currentUser.photoURL || `https://ui-avatars.com/api/?name=${currentUser.displayName || 'User'}&background=004B8D&color=fff`}
+                alt="Google Profile"
+                className="w-12 h-12 rounded-xl object-cover border border-slate-200"
+              />
+              <div>
+                <p className="text-sm font-black text-slate-900">{currentUser.displayName}</p>
+                <p className="text-xs font-semibold text-slate-400">{currentUser.email}</p>
+              </div>
+            </div>
+            <span className="px-3 py-1 bg-amber-100 text-amber-800 text-[9px] font-black uppercase tracking-widest rounded-lg">
+              {currentUser.status}
+            </span>
+          </div>
+        )}
+
+        {/* Request Role Form */}
+        <form onSubmit={handleUpdatePreferences} className="space-y-4 pt-2 border-t border-slate-100">
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1">
+              Requested Team Responsibility
+            </label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-800 outline-none focus:border-blue-900 transition-colors"
+            >
+              {ROLES.map((r) => (
+                <option key={r.role} value={r.role}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1">
+              Note for Super Admin (Optional)
+            </label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="e.g. In-charge of constituency media press releases"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-medium text-slate-800 outline-none focus:border-blue-900 transition-colors"
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <button
+              type="submit"
+              disabled={updatingNotes}
+              className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
+            >
+              <Send size={12} />
+              {updatingNotes ? "Updating..." : "Update Request"}
+            </button>
+            {saveSuccess && (
+              <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1">
+                <CheckCircle2 size={14} /> Saved for Super Admin review
+              </span>
+            )}
+          </div>
+        </form>
+
+        {/* Actions Bar */}
+        <div className="pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <button
+            onClick={handleManualCheck}
+            disabled={checking}
+            className="w-full sm:w-auto px-6 py-3 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-md active:scale-95"
+          >
+            <RefreshCw size={14} className={checking ? "animate-spin" : ""} />
+            {checking ? "Checking Approval..." : "Check Status"}
+          </button>
+
+          <button
+            onClick={logout}
+            className="text-xs font-bold text-slate-400 hover:text-red-600 transition-colors flex items-center gap-1.5"
+          >
+            <LogOut size={14} /> Switch Google Account
+          </button>
         </div>
       </motion.div>
     </div>

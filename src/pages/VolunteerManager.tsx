@@ -21,12 +21,34 @@ export default function VolunteerManager() {
   }, []);
 
   const handleApproval = async (uid: string, status: UserStatus) => {
-    await updateDoc(doc(db, "users", uid), { status });
-    setRequests(requests.filter(r => r.uid !== uid));
+    alert("Team access approvals are managed securely via MongoDB Atlas under Access & Roles (/admin/users).");
   };
 
   return (
-    <AdminLayout user={null} title="Volunteer Management Hub">
+    <AdminLayout user={null} title="Team Clearances & Role Onboarding">
+      {/* Notice Banner */}
+      <div className="mb-6 p-5 bg-blue-50 border-2 border-blue-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs text-blue-950 font-semibold">
+        <div>
+          <span className="font-bold text-blue-900 block mb-0.5">Internal Team Clearance & Access Queue</span>
+          <span className="text-blue-800 text-xs">
+            This screen reviews administrative account registrations. To manage public citizen volunteer applications submitted from the website, visit <strong>Public Submissions</strong>.
+          </span>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <a
+            href="/admin/submissions?tab=volunteer"
+            className="px-3.5 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-[10px] uppercase font-black tracking-widest shadow-sm"
+          >
+            Public Volunteer Submissions →
+          </a>
+          <a
+            href="/admin/users"
+            className="px-3.5 py-2 bg-white border border-blue-200 text-blue-900 hover:bg-blue-100 rounded-xl text-[10px] uppercase font-black tracking-widest shadow-sm"
+          >
+            Access & Roles
+          </a>
+        </div>
+      </div>
       <div className="space-y-8">
         {/* Stats Row */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">

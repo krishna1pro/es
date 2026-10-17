@@ -4,11 +4,10 @@ import { Link } from "react-router-dom";
 import { 
   Users, Layout, FileText, MessageSquare, 
   LogOut, Menu, Bell, Image as ImageIcon,
-  ShieldCheck, Activity, UserCheck
+  ShieldCheck, Activity, UserCheck, Inbox
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { signOut } from "firebase/auth";
-import { auth } from "@/src/db/firebase";
+import { useAuth } from "@/src/context/AuthContext";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -18,21 +17,26 @@ interface AdminLayoutProps {
 
 const MENU_ITEMS = [
   { name: "Command Center", path: "/admin", icon: Activity },
-  { name: "Content Infra", path: "/admin/cms", icon: Layout },
+  { name: "Website CMS", path: "/admin/cms", icon: Layout },
+  { name: "Public Submissions", path: "/admin/submissions", icon: Inbox },
+  { name: "Public Grievances", path: "/admin/grievances", icon: MessageSquare },
   { name: "Broadcast Media", path: "/admin/media", icon: ImageIcon },
-  { name: "Article Engine", path: "/admin/articles", icon: FileText },
-  { name: "Volunteer Hub", path: "/admin/volunteers", icon: UserCheck },
-  { name: "Public Grievance", path: "/admin/grievances", icon: MessageSquare },
   { name: "Access & Roles", path: "/admin/users", icon: Users },
+  { name: "Team Clearances", path: "/admin/volunteers", icon: UserCheck },
   { name: "System Analytics", path: "/admin/analytics", icon: ShieldCheck },
 ];
 
-export default function AdminLayout({ children, user, title }: AdminLayoutProps) {
+export default function AdminLayout({ children, user: propUser, title }: AdminLayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const { user: contextUser, logout } = useAuth();
+  const user = propUser || contextUser;
 
   const handleLogout = async () => {
-    localStorage.removeItem("mock_user_id");
-    await signOut(auth);
+    try {
+      await logout();
+    } catch (err) {
+      console.error(err);
+    }
     window.location.href = "/";
   };
 

@@ -4,13 +4,11 @@
  */
 
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth, db } from "@/src/db/firebase";
-import { doc, getDoc } from "firebase/firestore";
-import { UserProfile, UserStatus } from "./types";
+import { UserStatus } from "./types";
+import { SiteSettingsProvider } from "./context/SiteSettingsContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 
-// Pages (to be created)
+// Public Pages
 import Home from "./pages/Home";
 import About from "./pages/About";
 import Leadership from "./pages/Leadership";
@@ -23,7 +21,11 @@ import Vision from "./pages/Vision";
 import Activities from "./pages/Activities";
 import CadreCorner from "./pages/CadreCorner";
 import Contact from "./pages/Contact";
+import Redesign from "./pages/Redesign";
+
+// Administrative Access & Protected Pages
 import AdminAccess from "./pages/AdminAccess";
+import WaitingRoom from "./pages/WaitingRoom";
 import AdminDashboard from "./pages/AdminDashboard";
 import CMSManager from "./pages/CMSManager";
 import ArticleManager from "./pages/ArticleManager";
@@ -32,65 +34,23 @@ import GrievanceManager from "./pages/GrievanceManager";
 import AnalyticsDashboard from "./pages/AnalyticsDashboard";
 import UserManagement from "./pages/UserManagement";
 import AdminMediaCenter from "./pages/AdminMediaCenter";
-import WaitingRoom from "./pages/WaitingRoom";
+import SubmissionsManager from "./pages/SubmissionsManager";
 
-import Redesign from "./pages/Redesign";
-
-export default function App() {
-  const [user, setUser] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const initApp = async () => {
-      const mockUserId = localStorage.getItem("mock_user_id");
-      
-      // If mock user exists, prioritize it for testing
-      if (mockUserId) {
-        try {
-          const userDoc = await getDoc(doc(db, "users", mockUserId));
-          if (userDoc.exists()) {
-            setUser(userDoc.data() as UserProfile);
-            setLoading(false);
-            return;
-          }
-        } catch (err) {
-          console.error("Mock login error:", err);
-        }
-      }
-
-      // Fallback to Firebase Auth
-      const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-        if (firebaseUser) {
-          const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
-          if (userDoc.exists()) {
-            setUser(userDoc.data() as UserProfile);
-          } else {
-            setUser(null);
-          }
-        } else {
-          setUser(null);
-        }
-        setLoading(false);
-      });
-
-      return unsubscribe;
-    };
-
-    const unsubscribePromise = initApp();
-    return () => {
-      unsubscribePromise.then(unsub => unsub?.());
-    };
-  }, []);
+function AppRoutes() {
+  const { user, loading } = useAuth();
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-blue"></div>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white space-y-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
+        <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+          Securing Administrative Connection...
+        </p>
       </div>
     );
   }
 
-  const isAdmin = user && (user.status === UserStatus.APPROVED || user.uid.startsWith('mock_'));
+  const isApproved = user && user.status === UserStatus.APPROVED;
 
   return (
     <Router>
@@ -98,6 +58,7 @@ export default function App() {
         {/* Public Routes */}
         <Route path="/" element={<Home />} />
         <Route path="/about" element={<About />} />
+        <Route path="/leadership" element={<Leadership />} />
         <Route path="/vision" element={<Vision />} />
         <Route path="/activities" element={<Activities />} />
         <Route path="/development" element={<Development />} />
@@ -106,31 +67,52 @@ export default function App() {
         <Route path="/media-center" element={<MediaCenter />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/volunteer" element={<Volunteer />} />
+        <Route path="/students" element={<StudentHub />} />
         <Route path="/redesign" element={<Redesign />} />
-        
-        {/* Admin Access & auth (HIDDEN URL) */}
+
+        {/* Admin Access & Verification Flow */}
         <Route path="/leadership-control-center" element={<AdminAccess user={user} />} />
         <Route path="/waiting-room" element={<WaitingRoom user={user} />} />
 
-        {/* Protected Admin Routes */}
-        {isAdmin ? (
+        {/* Protected Administrative Routes */}
+        {isApproved ? (
           <Route path="/admin">
             <Route index element={<AdminDashboard user={user} />} />
             <Route path="cms" element={<CMSManager />} />
             <Route path="media" element={<AdminMediaCenter />} />
+            <Route path="submissions" element={<SubmissionsManager />} />
             <Route path="articles" element={<ArticleManager />} />
             <Route path="volunteers" element={<VolunteerManager />} />
             <Route path="users" element={<UserManagement />} />
             <Route path="grievances" element={<GrievanceManager />} />
             <Route path="analytics" element={<AnalyticsDashboard user={user} />} />
-            <Route path="*" element={<Navigate to="/admin" />} />
+            <Route path="*" element={<Navigate to="/admin" replace />} />
           </Route>
         ) : (
-          <Route path="/admin/*" element={<Navigate to="/leadership-control-center" />} />
+          <Route
+            path="/admin/*"
+            element={
+              user && user.status === UserStatus.PENDING ? (
+                <Navigate to="/waiting-room" replace />
+              ) : (
+                <Navigate to="/leadership-control-center" replace />
+              )
+            }
+          />
         )}
-        
-        <Route path="*" element={<Navigate to="/" />} />
+
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
+  );
+}
+
+export default function App() {
+  return (
+    <SiteSettingsProvider>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </SiteSettingsProvider>
   );
 }

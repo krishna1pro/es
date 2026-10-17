@@ -1,8 +1,45 @@
 import PublicLayout from "@/src/components/layout/PublicLayout";
 import { motion } from "motion/react";
-import { Users, Star, Award, MessageCircle } from "lucide-react";
+import { Users, Star, Award, MessageCircle, CheckCircle, AlertCircle } from "lucide-react";
+import { useState } from "react";
 
 export default function CadreCorner() {
+  const [fullName, setFullName] = useState("");
+  const [workerId, setWorkerId] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [mandal, setMandal] = useState("");
+  const [position, setPosition] = useState("Booth Organizer");
+  const [submitting, setSubmitting] = useState(false);
+  const [successNumber, setSuccessNumber] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fullName.trim() || !mobile.trim()) {
+      setError("Please fill out required fields: Full Name and Mobile.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/public/cadre", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName, workerId, mobile, mandal, position })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to submit cadre application");
+      }
+      setSuccessNumber(data.trackingNumber);
+    } catch (err: any) {
+      setError(err.message || "Network error. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <PublicLayout>
       <section className="bg-red-700 py-24 text-white">
@@ -66,21 +103,78 @@ export default function CadreCorner() {
                    ))}
                 </div>
              </div>
-             <div className="md:w-1/2 bg-white/5 p-12 rounded-[2.5rem] border border-white/10">
-                <h3 className="text-xl font-black uppercase tracking-tight mb-6">Cadre Login</h3>
-                <form className="space-y-6">
-                   <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Worker ID</label>
-                      <input className="w-full bg-white/5 border border-white/10 rounded-xl p-4 outline-none focus:border-red-600" placeholder="Enter ID" />
-                   </div>
-                   <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Mobile OTP</label>
-                      <input className="w-full bg-white/5 border border-white/10 rounded-xl p-4 outline-none focus:border-red-600" placeholder="Verify Mobile" />
-                   </div>
-                   <button className="w-full py-5 bg-red-600 text-white text-[11px] font-black uppercase tracking-widest rounded-xl shadow-xl hover:bg-red-700 transition-all">
-                      Access Workspace
-                   </button>
-                </form>
+             <div className="md:w-1/2 bg-white/5 p-12 rounded-[2.5rem] border border-white/10 w-full">
+                <h3 className="text-xl font-black uppercase tracking-tight mb-2">Cadre Registration & Login</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">Submit credentials to access district worker network.</p>
+
+                {successNumber ? (
+                  <div className="bg-green-500/10 border border-green-500/30 p-6 rounded-2xl text-center space-y-3">
+                     <CheckCircle size={28} className="text-green-400 mx-auto" />
+                     <p className="font-bold text-green-300 text-sm">Application Registered!</p>
+                     <p className="text-[10px] text-slate-300">Tracking Reference:</p>
+                     <p className="text-lg font-black text-white tracking-widest">{successNumber}</p>
+                     <button 
+                       onClick={() => { setSuccessNumber(null); setFullName(""); setWorkerId(""); setMobile(""); }}
+                       className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-bold uppercase"
+                     >
+                        Submit Another
+                     </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                     {error && (
+                       <div className="p-3 bg-red-500/20 border border-red-500/40 rounded-xl flex items-center gap-2 text-red-200 text-xs font-bold">
+                          <AlertCircle size={16} /> {error}
+                       </div>
+                     )}
+                     <div className="space-y-1">
+                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Full Name *</label>
+                        <input 
+                          value={fullName}
+                          onChange={e => setFullName(e.target.value)}
+                          required
+                          className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm outline-none focus:border-red-600 text-white" 
+                          placeholder="Worker Full Name" 
+                        />
+                     </div>
+                     <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                           <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Worker ID / Card No</label>
+                           <input 
+                             value={workerId}
+                             onChange={e => setWorkerId(e.target.value)}
+                             className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm outline-none focus:border-red-600 text-white" 
+                             placeholder="Optional ID" 
+                           />
+                        </div>
+                        <div className="space-y-1">
+                           <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Mobile Number *</label>
+                           <input 
+                             value={mobile}
+                             onChange={e => setMobile(e.target.value)}
+                             required
+                             className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm outline-none focus:border-red-600 text-white" 
+                             placeholder="+91 ..." 
+                           />
+                        </div>
+                     </div>
+                     <div className="space-y-1">
+                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Mandal / Role</label>
+                        <input 
+                          value={mandal}
+                          onChange={e => setMandal(e.target.value)}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm outline-none focus:border-red-600 text-white" 
+                          placeholder="e.g. Mandal Convener" 
+                        />
+                     </div>
+                     <button 
+                       disabled={submitting}
+                       className="w-full py-4 bg-red-600 text-white text-[11px] font-black uppercase tracking-widest rounded-xl shadow-xl hover:bg-red-700 transition-all disabled:opacity-50 mt-2"
+                     >
+                        {submitting ? "Submitting..." : "Submit Cadre Application"}
+                     </button>
+                  </form>
+                )}
              </div>
           </div>
         </div>

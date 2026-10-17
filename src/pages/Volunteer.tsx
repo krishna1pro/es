@@ -1,10 +1,45 @@
 import { useState } from "react";
 import PublicLayout from "@/src/components/layout/PublicLayout";
-import { motion } from "motion/react";
-import { Heart, UserPlus, MapPin, Award, Users, CheckCircle, HelpCircle, Activity } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { Heart, UserPlus, MapPin, Award, Users, CheckCircle, Activity, X, AlertCircle } from "lucide-react";
 
 export default function Volunteer() {
-  const [step, setStep] = useState(1);
+  const [showModal, setShowModal] = useState(false);
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [mandal, setMandal] = useState("");
+  const [experience, setExperience] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [successNumber, setSuccessNumber] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fullName.trim() || !email.trim() || !mobile.trim()) {
+      setError("Please fill out all required fields.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/public/volunteer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName, email, mobile, mandal, experience, skills: ["Community Outreach"] })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to submit volunteer application");
+      }
+      setSuccessNumber(data.trackingNumber);
+    } catch (err: any) {
+      setError(err.message || "Network error. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <PublicLayout>
@@ -54,7 +89,10 @@ export default function Volunteer() {
                              </div>
                            ))}
                         </div>
-                        <button className="w-full py-5 bg-blue-900 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl shadow-xl hover:bg-blue-800 transition-all">
+                        <button 
+                          onClick={() => { setShowModal(true); setSuccessNumber(null); setError(null); }}
+                          className="w-full py-5 bg-blue-900 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl shadow-xl hover:bg-blue-800 transition-all"
+                        >
                            Start Registration Session
                         </button>
                      </div>
@@ -111,25 +149,123 @@ export default function Volunteer() {
                     Full Leaderboard
                   </button>
                </div>
-
-               <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm">
-                  <h3 className="text-lg font-black uppercase tracking-tight text-slate-900 mb-6">Ceremonial Honors</h3>
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest leading-[1.8] mb-10">
-                    High-impact volunteers are recognized quarterly with executive certifications signed by our leadership.
-                  </p>
-                  <div className="flex -space-x-4 mb-4">
-                    {[1,2,3,4,5].map(i => (
-                      <div key={i} className="w-12 h-12 rounded-full border-4 border-white bg-[#F9F9F8] flex items-center justify-center text-blue-600 shadow-xl transition-transform hover:-translate-y-2 cursor-pointer">
-                         <Award size={20} />
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">Merit System Active</p>
-               </div>
             </div>
           </div>
         </div>
       </section>
+
+      {/* Volunteer Registration Modal */}
+      <AnimatePresence>
+        {showModal && (
+          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-[3rem] p-10 max-w-xl w-full relative shadow-2xl overflow-y-auto max-h-[90vh]"
+            >
+               <button 
+                 onClick={() => setShowModal(false)}
+                 className="absolute top-8 right-8 p-3 bg-slate-100 rounded-full hover:bg-slate-200 transition-colors"
+               >
+                  <X size={20} />
+               </button>
+
+               <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 mb-2">Volunteer Application</h3>
+               <p className="text-xs text-slate-500 uppercase tracking-widest mb-8">Register securely in the district volunteer database.</p>
+
+               {successNumber ? (
+                 <div className="bg-green-50 border border-green-200 p-8 rounded-3xl text-center space-y-4">
+                    <div className="w-16 h-16 bg-green-100 text-green-700 rounded-full flex items-center justify-center mx-auto">
+                       <CheckCircle size={32} />
+                    </div>
+                    <h4 className="text-2xl font-black text-green-900 uppercase">Application Received</h4>
+                    <p className="text-xs text-green-700">Your volunteer registration has been successfully stored in MongoDB.</p>
+                    <div className="bg-white p-4 rounded-xl border border-green-200 inline-block">
+                       <p className="text-[10px] uppercase font-bold text-slate-400">Tracking Reference</p>
+                       <p className="text-xl font-black text-slate-900 tracking-wider">{successNumber}</p>
+                    </div>
+                    <div>
+                      <button 
+                        onClick={() => setShowModal(false)}
+                        className="px-6 py-3 bg-green-700 text-white font-bold rounded-xl text-xs uppercase tracking-widest mt-4"
+                      >
+                         Close Window
+                      </button>
+                    </div>
+                 </div>
+               ) : (
+                 <form onSubmit={handleSubmit} className="space-y-6">
+                    {error && (
+                      <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-700 text-xs font-bold">
+                         <AlertCircle size={18} /> {error}
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Full Name *</label>
+                       <input 
+                         value={fullName}
+                         onChange={e => setFullName(e.target.value)}
+                         required
+                         className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none focus:ring-2 focus:ring-blue-700/10" 
+                         placeholder="Enter your full name" 
+                       />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Email Address *</label>
+                          <input 
+                            type="email"
+                            value={email}
+                            onChange={e => setEmail(e.target.value)}
+                            required
+                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none focus:ring-2 focus:ring-blue-700/10" 
+                            placeholder="name@example.com" 
+                          />
+                       </div>
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Mobile Number *</label>
+                          <input 
+                            value={mobile}
+                            onChange={e => setMobile(e.target.value)}
+                            required
+                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none focus:ring-2 focus:ring-blue-700/10" 
+                            placeholder="+91 ..." 
+                          />
+                       </div>
+                    </div>
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Mandal / Division</label>
+                       <input 
+                         value={mandal}
+                         onChange={e => setMandal(e.target.value)}
+                         className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none focus:ring-2 focus:ring-blue-700/10" 
+                         placeholder="e.g. East Mandal" 
+                       />
+                    </div>
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Experience / Areas of Interest</label>
+                       <textarea 
+                         rows={3}
+                         value={experience}
+                         onChange={e => setExperience(e.target.value)}
+                         className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none focus:ring-2 focus:ring-blue-700/10 resize-none" 
+                         placeholder="Briefly describe your previous social work or skills..." 
+                       />
+                    </div>
+
+                    <button 
+                      disabled={submitting}
+                      className="w-full py-5 bg-blue-900 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-xl hover:bg-blue-800 transition-all disabled:opacity-50"
+                    >
+                       {submitting ? "Submitting Application..." : "Submit Volunteer Application"}
+                    </button>
+                 </form>
+               )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </PublicLayout>
   );
 }

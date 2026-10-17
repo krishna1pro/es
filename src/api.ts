@@ -2,10 +2,11 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * Vercel Serverless Function entry point for Chintada Ravi Kumar Official Portal
+ * Source entry point for Vercel Serverless Function (Express API).
+ * Bundled by esbuild into api/index.js for zero-dependency-resolution production runtime.
  */
 
-import app from "../src/serverApp";
+import app from "./serverApp";
 import type { Request, Response } from "express";
 
 export default function handler(req: Request, res: Response) {

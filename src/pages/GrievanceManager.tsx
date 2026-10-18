@@ -4,6 +4,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { Grievance, GrievanceStatus } from "@/src/types";
 import { MessageSquare, Clock, CheckCircle, Search, Filter, AlertCircle, User, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { LoadingSpinner } from "@/src/components/common/LoadingSpinner";
 
 export default function GrievanceManager() {
   const { authFetch, user: authUser } = useAuth();
@@ -91,7 +92,7 @@ export default function GrievanceManager() {
 
            <div className="flex-grow overflow-y-auto p-4 space-y-2">
               {loading ? (
-                <p className="text-center text-slate-400 py-10 text-xs">Loading grievances from MongoDB...</p>
+                <LoadingSpinner />
               ) : grievances.length === 0 ? (
                 <p className="text-center text-slate-400 py-10 text-xs italic">No grievance submissions found.</p>
               ) : grievances.map((g) => (

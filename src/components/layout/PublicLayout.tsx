@@ -49,9 +49,7 @@ export default function PublicLayout({ children, settings: propSettings }: Publi
 
   const baseNav = mongoNavLinks && mongoNavLinks.length > 0 ? mongoNavLinks : fallbackNavLinks;
 
-  const NAV_LINKS = [
-    ...baseNav
-  ];
+  const NAV_LINKS = [...baseNav];
 
   const toggleLanguage = () => {
     const newLang = i18n.language === "en" ? "te" : "en";
@@ -348,6 +346,14 @@ export default function PublicLayout({ children, settings: propSettings }: Publi
                     className="text-[11px] font-bold text-slate-400 hover:text-blue-700 uppercase tracking-tight transition-colors"
                   >
                     Media Assets
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    to="/redesign"
+                    className="text-[11px] font-bold text-slate-400 hover:text-blue-700 uppercase tracking-tight transition-colors"
+                  >
+                    Visual Redesign (v2)
                   </Link>
                 </li>
               </ul>

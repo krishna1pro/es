@@ -1,13 +1,9 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import PublicLayout from "@/src/components/layout/PublicLayout";
-import BrandedLoading from "@/src/components/BrandedLoading";
 import { motion } from "motion/react";
-import { Shield, Target, Landmark, History } from "lucide-react";
+import { Shield, Target, Landmark, History, Activity } from "lucide-react";
 import { useState, useEffect } from "react";
+import BrandedLoading from "@/src/components/BrandedLoading";
+import { useRouteTransitionLoading } from "@/src/hooks/useRouteTransitionLoading";
 
 export default function About() {
   const [content, setContent] = useState<any>(null);
@@ -42,31 +38,33 @@ export default function About() {
               {pageSubtitle}
             </p>
             <div className="flex justify-center gap-4 pt-8">
-              <div className="h-2 w-2 bg-blue-900 rounded-full" />
-              <div className="h-2 w-2 bg-emerald-600 rounded-full" />
-              <div className="h-2 w-12 bg-blue-900 rounded-full" />
+              <div className="h-2 w-2 bg-primary-blue rounded-full" />
+              <div className="h-2 w-2 bg-primary-green rounded-full" />
+              <div className="h-2 w-12 bg-primary-blue rounded-full" />
             </div>
           </div>
         </div>
 
         <div className="max-w-7xl mx-auto px-4 sm:px-8 py-24">
            {loading ? (
-             <BrandedLoading message="Namaste — Mee Chintada Ravi Kumar" minHeight="min-h-[50vh]" isFirstVisit={false} />
+             <div className="flex justify-center py-24">
+               <Activity className="animate-spin text-blue-700" size={36} />
+             </div>
            ) : (
              <div className="grid grid-cols-1 lg:grid-cols-2 gap-24 items-center">
                 <div className="space-y-8">
-                   <h2 className="text-4xl font-display font-bold text-blue-900 leading-tight uppercase tracking-[0.2em]">{missionTitle}</h2>
+                   <h2 className="text-4xl font-display font-bold text-primary-blue leading-tight uppercase tracking-[0.2em]">{missionTitle}</h2>
                    <p className="text-lg text-slate-600 leading-relaxed font-light italic">
                      {missionText}
                    </p>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-8">
                       <div className="space-y-3">
-                         <div className="p-3 bg-blue-900/5 text-blue-900 rounded-2xl w-fit"><Landmark size={24} /></div>
+                         <div className="p-3 bg-primary-blue/5 text-primary-blue rounded-2xl w-fit"><Landmark size={24} /></div>
                          <h4 className="font-bold text-slate-900">Land Governance</h4>
                          <p className="text-sm text-slate-500">Transparent management of land resources and planning.</p>
                       </div>
                       <div className="space-y-3">
-                         <div className="p-3 bg-emerald-600/5 text-emerald-600 rounded-2xl w-fit"><Shield size={24} /></div>
+                         <div className="p-3 bg-primary-green/5 text-primary-green rounded-2xl w-fit"><Shield size={24} /></div>
                          <h4 className="font-bold text-slate-900">Security & Safety</h4>
                          <p className="text-sm text-slate-500">Ensuring a safe living environment for every family.</p>
                       </div>
@@ -85,10 +83,10 @@ export default function About() {
                 <div className="relative">
                    <div className="aspect-[4/5] rounded-[3rem] overflow-hidden shadow-2xl relative z-10">
                       <img src={heroImageUrl} className="w-full h-full object-cover" alt="History" />
-                      <div className="absolute inset-0 bg-blue-900/20" />
+                      <div className="absolute inset-0 bg-primary-blue/20" />
                    </div>
-                   <div className="absolute -top-12 -right-12 w-48 h-48 bg-emerald-600/30 rounded-full blur-3xl" />
-                   <div className="absolute -bottom-12 -left-12 w-64 h-64 bg-blue-900/20 rounded-full blur-3xl shadow-2xl" />
+                   <div className="absolute -top-12 -right-12 w-48 h-48 bg-primary-green/30 rounded-full blur-3xl" />
+                   <div className="absolute -bottom-12 -left-12 w-64 h-64 bg-primary-blue/20 rounded-full blur-3xl shadow-2xl" />
                 </div>
              </div>
            )}

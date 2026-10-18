@@ -3,11 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import React, { useState, useEffect } from "react";
 import { UserStatus } from "./types";
 import { SiteSettingsProvider } from "./context/SiteSettingsContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { useUrlSanitizer } from "./lib/useUrlSanitizer";
+import { RouteTransitionLoader } from "./components/layout/RouteTransitionLoader";
 
 // Public Pages
 import Home from "./pages/Home";
@@ -22,7 +24,6 @@ import Vision from "./pages/Vision";
 import Activities from "./pages/Activities";
 import CadreCorner from "./pages/CadreCorner";
 import Contact from "./pages/Contact";
-import Redesign from "./pages/Redesign";
 
 // Administrative Access & Protected Pages
 import AdminAccess from "./pages/AdminAccess";
@@ -36,6 +37,24 @@ import AnalyticsDashboard from "./pages/AnalyticsDashboard";
 import UserManagement from "./pages/UserManagement";
 import AdminMediaCenter from "./pages/AdminMediaCenter";
 import SubmissionsManager from "./pages/SubmissionsManager";
+
+function AppContent({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    const timer = setTimeout(() => setLoading(false), 5000);
+    return () => clearTimeout(timer);
+  }, [location.pathname]);
+
+  return (
+    <>
+      {loading && <RouteTransitionLoader />}
+      <div className={loading ? "hidden" : "block"}>{children}</div>
+    </>
+  );
+}
 
 function UrlSanitizerListener() {
   useUrlSanitizer();
@@ -61,71 +80,72 @@ function AppRoutes() {
   return (
     <Router>
       <UrlSanitizerListener />
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/" element={<Home />} />
-        <Route path="/about" element={<About />} />
-        <Route path="/leadership" element={<Leadership />} />
-        <Route path="/vision" element={<Vision />} />
-        <Route path="/activities" element={<Activities />} />
-        <Route path="/development" element={<Development />} />
-        <Route path="/public-voice" element={<PublicVoice />} />
-        <Route path="/cadre-corner" element={<CadreCorner />} />
-        <Route path="/media-center" element={<MediaCenter />} />
-        <Route path="/contact" element={<Contact />} />
-        <Route path="/volunteer" element={<Volunteer />} />
-        <Route path="/students" element={<StudentHub />} />
-        <Route path="/redesign" element={<Redesign />} />
+      <AppContent>
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/" element={<Home />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/leadership" element={<Leadership />} />
+          <Route path="/vision" element={<Vision />} />
+          <Route path="/activities" element={<Activities />} />
+          <Route path="/development" element={<Development />} />
+          <Route path="/public-voice" element={<PublicVoice />} />
+          <Route path="/cadre-corner" element={<CadreCorner />} />
+          <Route path="/media-center" element={<MediaCenter />} />
+          <Route path="/contact" element={<Contact />} />
+          <Route path="/volunteer" element={<Volunteer />} />
+          <Route path="/students" element={<StudentHub />} />
 
-        {/* Administrative Access & Verification Flow */}
-        <Route path="/leadership-control-center" element={<AdminAccess user={user} />} />
-        <Route path="/waiting-room" element={<WaitingRoom user={user} />} />
+          {/* Administrative Access & Verification Flow */}
+          <Route path="/leadership-control-center" element={<AdminAccess user={user} />} />
+          <Route path="/waiting-room" element={<WaitingRoom user={user} />} />
 
-        {/* Common Administrative & Login Aliases */}
-        <Route path="/admin/login" element={<Navigate to="/leadership-control-center" replace />} />
-        <Route path="/login" element={<Navigate to="/leadership-control-center" replace />} />
+          {/* Common Administrative & Login Aliases */}
+          <Route path="/admin/login" element={<Navigate to="/leadership-control-center" replace />} />
+          <Route path="/login" element={<Navigate to="/leadership-control-center" replace />} />
 
-        {/* Protected Administrative Routes */}
-        {isApproved ? (
-          <Route path="/admin">
-            <Route index element={<AdminDashboard user={user} />} />
-            <Route path="cms" element={<CMSManager />} />
-            <Route path="media" element={<AdminMediaCenter />} />
-            <Route path="submissions" element={<SubmissionsManager />} />
-            <Route path="articles" element={<ArticleManager />} />
-            <Route path="volunteers" element={<VolunteerManager />} />
-            <Route path="users" element={<UserManagement />} />
-            <Route path="grievances" element={<GrievanceManager />} />
-            <Route path="analytics" element={<AnalyticsDashboard user={user} />} />
-            <Route path="*" element={<Navigate to="/admin" replace />} />
-          </Route>
-        ) : (
-          <>
-            <Route
-              path="/admin"
-              element={
-                user && user.status === UserStatus.PENDING ? (
-                  <Navigate to="/waiting-room" replace />
-                ) : (
-                  <Navigate to="/leadership-control-center" replace />
-                )
-              }
-            />
-            <Route
-              path="/admin/*"
-              element={
-                user && user.status === UserStatus.PENDING ? (
-                  <Navigate to="/waiting-room" replace />
-                ) : (
-                  <Navigate to="/leadership-control-center" replace />
-                )
-              }
-            />
-          </>
-        )}
+          {/* Protected Administrative Routes */}
+          {isApproved ? (
+            <Route path="/admin">
+              <Route index element={<AdminDashboard user={user} />} />
+              <Route path="cms" element={<CMSManager />} />
+              <Route path="media" element={<AdminMediaCenter />} />
+              <Route path="submissions" element={<SubmissionsManager />} />
+              <Route path="articles" element={<ArticleManager />} />
+              <Route path="volunteers" element={<VolunteerManager />} />
+              <Route path="users" element={<UserManagement />} />
+              <Route path="grievances" element={<GrievanceManager />} />
+              <Route path="analytics" element={<AnalyticsDashboard user={user} />} />
+              <Route path="*" element={<Navigate to="/admin" replace />} />
+            </Route>
+          ) : (
+            <>
+              <Route
+                path="/admin"
+                element={
+                  user && user.status === UserStatus.PENDING ? (
+                    <Navigate to="/waiting-room" replace />
+                  ) : (
+                    <Navigate to="/leadership-control-center" replace />
+                  )
+                }
+              />
+              <Route
+                path="/admin/*"
+                element={
+                  user && user.status === UserStatus.PENDING ? (
+                    <Navigate to="/waiting-room" replace />
+                  ) : (
+                    <Navigate to="/leadership-control-center" replace />
+                  )
+                }
+              />
+            </>
+          )}
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AppContent>
     </Router>
   );
 }

@@ -24,6 +24,11 @@ const SiteSettingsContext = createContext<SiteSettingsContextValue>({
 
 export const useSiteSettings = () => useContext(SiteSettingsContext);
 
+// In-memory cache for public site settings (5-minute TTL)
+let cachedSiteSettings: SiteSettingsDocument | null = null;
+let siteSettingsCacheTimestamp = 0;
+const SETTINGS_CACHE_TTL = 5 * 60 * 1000;
+
 export function SiteSettingsProvider({
   children,
   initialSettings
@@ -32,20 +37,29 @@ export function SiteSettingsProvider({
   initialSettings?: SiteSettingsDocument | null;
 }) {
   const [settings, setSettingsState] = useState<SiteSettingsDocument | null>(
-    initialSettings || null
+    initialSettings || cachedSiteSettings || null
   );
-  const [loading, setLoading] = useState<boolean>(!initialSettings);
+  const [loading, setLoading] = useState<boolean>(!initialSettings && !cachedSiteSettings);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchSettings = async () => {
+  const fetchSettings = async (forceRefresh = false) => {
+    const now = Date.now();
+    if (!forceRefresh && cachedSiteSettings && now - siteSettingsCacheTimestamp < SETTINGS_CACHE_TTL) {
+      setSettingsState(cachedSiteSettings);
+      setLoading(false);
+      return;
+    }
+
     try {
-      setLoading(true);
+      if (!settings) setLoading(true);
       const res = await fetch("/api/public/site-settings");
       if (!res.ok) {
         throw new Error(`Failed to load site settings: ${res.statusText}`);
       }
       const data = await res.json();
       if (data && data.settings) {
+        cachedSiteSettings = data.settings;
+        siteSettingsCacheTimestamp = Date.now();
         setSettingsState(data.settings);
         setError(null);
       }
@@ -58,12 +72,16 @@ export function SiteSettingsProvider({
   };
 
   useEffect(() => {
-    if (!initialSettings && !settings) {
+    if (!initialSettings && (!settings || !cachedSiteSettings)) {
       fetchSettings();
+    } else {
+      setLoading(false);
     }
   }, []);
 
   const setSettings = (newSettings: SiteSettingsDocument) => {
+    cachedSiteSettings = newSettings;
+    siteSettingsCacheTimestamp = Date.now();
     setSettingsState(newSettings);
   };
 
@@ -74,7 +92,7 @@ export function SiteSettingsProvider({
         loading,
         error,
         setSettings,
-        refreshSettings: fetchSettings
+        refreshSettings: () => fetchSettings(true)
       }}
     >
       {children}

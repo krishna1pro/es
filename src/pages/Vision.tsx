@@ -1,7 +1,13 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import PublicLayout from "@/src/components/layout/PublicLayout";
+import BrandedLoading from "@/src/components/BrandedLoading";
 import OurVision from "@/src/components/home/OurVision";
 import { motion } from "motion/react";
-import { ShieldCheck, Target, Lightbulb, Activity } from "lucide-react";
+import { ShieldCheck, Target, Lightbulb } from "lucide-react";
 import { useState, useEffect } from "react";
 
 export default function Vision() {
@@ -58,7 +64,11 @@ export default function Vision() {
              ))}
           </div>
 
-          <OurVision />
+          {loading ? (
+            <BrandedLoading message="Namaste — Mee Chintada Ravi Kumar" minHeight="min-h-[40vh]" isFirstVisit={false} />
+          ) : (
+            <OurVision />
+          )}
         </div>
       </section>
     </PublicLayout>

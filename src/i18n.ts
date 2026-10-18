@@ -23,9 +23,7 @@ i18n
             title: "MLA WEB",
             tagline: "Vision • Integrity • Action"
           },
-          redesign: {
-            title: "Redesign",
-          },
+
           hero: {
             people: "PEOPLE",
             first: "FIRST",

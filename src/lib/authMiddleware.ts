@@ -92,6 +92,24 @@ function pruneTokenCache(): void {
   }
 }
 
+export function setCachedTokenForTesting(
+  token: string,
+  data: { uid: string; email: string; email_verified?: boolean; displayName?: string; exp?: number }
+) {
+  tokenCache.set(token.trim(), {
+    uid: data.uid,
+    email: data.email.toLowerCase().trim(),
+    email_verified: data.email_verified !== undefined ? data.email_verified : true,
+    displayName: data.displayName,
+    exp: data.exp || Math.floor(Date.now() / 1000) + 3600,
+    expiresAt: Date.now() + 3600 * 1000
+  });
+}
+
+export function clearTokenCacheForTesting() {
+  tokenCache.clear();
+}
+
 /**
  * Cryptographically verifies a Firebase ID token via Firebase Admin SDK
  * Enforces project ID audience, issuer, signature, and expiration validity.
@@ -379,6 +397,141 @@ export async function requireSectionEditPermission(req: Request, res: Response, 
     console.error("[Auth] requireSectionEditPermission error:", err);
     res.status(500).json({ error: "Internal authorization error" });
   }
+}
+
+/**
+ * Middleware: Enforces access to Media Center and Social Hub administrative endpoints
+ * Authorizes Super Admins, Admins, Media Managers, or users assigned to media sections.
+ */
+export async function requireMediaAccess(req: Request, res: Response, next: NextFunction) {
+  try {
+    const user = await resolveAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    if (user.status !== UserStatus.APPROVED && !isSuperAdmin(user)) {
+      try {
+        const { getSegmentPermissions } = await import("./mediaService");
+        const grants = await getSegmentPermissions();
+        const hasGrant = grants.some(
+          (g) =>
+            g.status === "ACTIVE" &&
+            ((user.email && g.userEmail.toLowerCase() === user.email.toLowerCase()) ||
+              (user.uid && g.userUid === user.uid))
+        );
+        if (!hasGrant) {
+          return res.status(403).json({ error: "Access Pending Approval" });
+        }
+      } catch {
+        return res.status(403).json({ error: "Access Pending Approval" });
+      }
+    }
+
+    let hasAccess =
+      isSuperAdmin(user) ||
+      user.role === UserRole.ADMIN ||
+      user.role === UserRole.MEDIA_MANAGER ||
+      canUserEditSection(user, "media_center") ||
+      canUserEditSection(user, "media_page") ||
+      canUserEditSection(user, "social_hub") ||
+      (user.permissions && (user.permissions.includes("*") || user.permissions.includes("media:*")));
+
+    if (!hasAccess) {
+      try {
+        const { getSegmentPermissions } = await import("./mediaService");
+        const grants = await getSegmentPermissions();
+        hasAccess = grants.some(
+          (g) =>
+            g.status === "ACTIVE" &&
+            ((user.email && g.userEmail.toLowerCase() === user.email.toLowerCase()) ||
+              (user.uid && g.userUid === user.uid))
+        );
+      } catch {
+        // If sheets permissions check fails, retain hasAccess = false
+      }
+    }
+
+    if (!hasAccess) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: `Account '${user.email}' (${user.role}) is not authorized to manage Media Center or Social Hub.`
+      });
+    }
+
+    req.user = user;
+    next();
+  } catch (err) {
+    console.error("[Auth] requireMediaAccess error:", err);
+    res.status(500).json({ error: "Internal authorization error" });
+  }
+}
+
+/**
+ * Middleware: Enforces fine-grained segment rights (canRead, canCreate, canEdit, canDelete)
+ * based on the MediaPermissions tab in Google Sheets.
+ * Super Admins retain global override.
+ */
+export function requireSegmentAccess(
+  segmentOrResolver?: string | ((req: Request) => string),
+  action: "read" | "create" | "edit" | "delete" = "read"
+) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = await resolveAuthUser(req);
+      if (!user) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      if (user.status !== UserStatus.APPROVED && !isSuperAdmin(user)) {
+        try {
+          const { getSegmentPermissions } = await import("./mediaService");
+          const grants = await getSegmentPermissions();
+          const hasGrant = grants.some(
+            (g) =>
+              g.status === "ACTIVE" &&
+              ((user.email && g.userEmail.toLowerCase() === user.email.toLowerCase()) ||
+                (user.uid && g.userUid === user.uid))
+          );
+          if (!hasGrant) {
+            return res.status(403).json({ error: "Access Pending Approval" });
+          }
+        } catch {
+          return res.status(403).json({ error: "Access Pending Approval" });
+        }
+      }
+
+      if (isSuperAdmin(user)) {
+        req.user = user;
+        return next();
+      }
+
+      let segment = "";
+      if (typeof segmentOrResolver === "function") {
+        segment = segmentOrResolver(req);
+      } else if (typeof segmentOrResolver === "string") {
+        segment = segmentOrResolver;
+      } else {
+        segment = (req.body?.category || req.query?.category || req.params?.category || "PHOTO_GALLERY") as string;
+      }
+
+      const { checkUserSegmentPermission } = await import("./mediaService");
+      const hasPermission = await checkUserSegmentPermission(user, segment, action);
+
+      if (!hasPermission) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: `Account '${user.email}' lacks '${action}' permission for media segment '${segment}'.`
+        });
+      }
+
+      req.user = user;
+      next();
+    } catch (err) {
+      console.error("[Auth] requireSegmentAccess error:", err);
+      res.status(500).json({ error: "Internal authorization error" });
+    }
+  };
 }
 
 export type SubmissionType = "contact" | "volunteer" | "cadre" | "grievances";

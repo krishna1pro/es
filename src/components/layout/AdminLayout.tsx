@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { 
   Users, Layout, FileText, MessageSquare, 
   LogOut, Menu, Bell, Image as ImageIcon,
-  ShieldCheck, Activity, UserCheck, Inbox
+  ShieldCheck, Activity, UserCheck, Inbox, PlayCircle
 } from "lucide-react";
 import { sanitizeCurrentUrl } from "@/src/lib/useUrlSanitizer";
 import { useAuth } from "@/src/context/AuthContext";
@@ -21,6 +21,7 @@ const MENU_ITEMS = [
   { name: "Public Submissions", path: "/admin/submissions", icon: Inbox },
   { name: "Public Grievances", path: "/admin/grievances", icon: MessageSquare },
   { name: "Broadcast Media", path: "/admin/media", icon: ImageIcon },
+  { name: "Social Channels", path: "/admin/social", icon: PlayCircle },
   { name: "Access & Roles", path: "/admin/users", icon: Users },
   { name: "Team Clearances", path: "/admin/volunteers", icon: UserCheck },
   { name: "System Analytics", path: "/admin/analytics", icon: ShieldCheck },

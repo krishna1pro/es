@@ -9,6 +9,7 @@ import { motion, useReducedMotion } from "framer-motion";
 interface BrandedLoadingProps {
   message?: string;
   minHeight?: string;
+  isFirstVisit?: boolean;
 }
 
 export default function BrandedLoading({

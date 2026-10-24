@@ -1,9 +1,1300 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// src/types.ts
+var init_types = __esm({
+  "src/types.ts"() {
+  }
+});
+
+// src/lib/mediaService.ts
+var mediaService_exports = {};
+__export(mediaService_exports, {
+  DEFAULT_DRIVE_FOLDER_ID: () => DEFAULT_DRIVE_FOLDER_ID,
+  DEFAULT_SPREADSHEET_ID: () => DEFAULT_SPREADSHEET_ID,
+  EXPECTED_ACTIVITY_LOG_HEADERS: () => EXPECTED_ACTIVITY_LOG_HEADERS,
+  EXPECTED_MEDIA_ITEMS_HEADERS: () => EXPECTED_MEDIA_ITEMS_HEADERS,
+  EXPECTED_MEDIA_PERMISSIONS_HEADERS: () => EXPECTED_MEDIA_PERMISSIONS_HEADERS,
+  EXPECTED_SOCIAL_CHANNELS_HEADERS: () => EXPECTED_SOCIAL_CHANNELS_HEADERS,
+  REQUIRED_TABS: () => REQUIRED_TABS,
+  SchemaMismatchError: () => SchemaMismatchError,
+  SheetsUnavailableError: () => SheetsUnavailableError,
+  VALID_MEDIA_SEGMENTS: () => VALID_MEDIA_SEGMENTS,
+  checkUserSegmentPermission: () => checkUserSegmentPermission,
+  clearMockSheetsStore: () => clearMockSheetsStore,
+  createAuditLog: () => createAuditLog2,
+  createMediaItem: () => createMediaItem,
+  createSocialChannel: () => createSocialChannel,
+  deleteMediaItem: () => deleteMediaItem,
+  deleteSocialChannel: () => deleteSocialChannel,
+  getGoogleAuth: () => getGoogleAuth,
+  getMediaActivityLogs: () => getMediaActivityLogs,
+  getMediaItemById: () => getMediaItemById,
+  getMediaItems: () => getMediaItems,
+  getMediaPermissions: () => getMediaPermissions,
+  getSegmentPermissions: () => getSegmentPermissions,
+  getSheetsClient: () => getSheetsClient,
+  getSocialChannelById: () => getSocialChannelById,
+  getSocialChannels: () => getSocialChannels,
+  getSpreadsheetId: () => getSpreadsheetId,
+  grantSegmentPermission: () => grantSegmentPermission,
+  initMockSheetsStore: () => initMockSheetsStore,
+  invalidateAllMediaCaches: () => invalidateAllMediaCaches,
+  invalidateMediaCache: () => invalidateMediaCache,
+  invalidatePermissionsCache: () => invalidatePermissionsCache,
+  invalidateSocialCache: () => invalidateSocialCache,
+  isMockStoreActive: () => isMockStoreActive,
+  isSheetsConfigured: () => isSheetsConfigured,
+  revokeSegmentPermission: () => revokeSegmentPermission,
+  sanitizePublicMediaItem: () => sanitizePublicMediaItem,
+  updateMediaItem: () => updateMediaItem,
+  updateSocialChannel: () => updateSocialChannel,
+  validateSpreadsheet: () => validateSpreadsheet
+});
+import { google } from "googleapis";
+function invalidateMediaCache() {
+  mediaCache = null;
+}
+function invalidateSocialCache() {
+  socialCache = null;
+}
+function invalidatePermissionsCache() {
+  permissionsCache = null;
+}
+function invalidateAllMediaCaches() {
+  mediaCache = null;
+  socialCache = null;
+  permissionsCache = null;
+}
+function initMockSheetsStore(customSeed) {
+  mockSheetsStore = {
+    MediaItems: [[...EXPECTED_MEDIA_ITEMS_HEADERS]],
+    SocialChannels: [[...EXPECTED_SOCIAL_CHANNELS_HEADERS]],
+    MediaPermissions: [[...EXPECTED_MEDIA_PERMISSIONS_HEADERS]],
+    ActivityLog: [[...EXPECTED_ACTIVITY_LOG_HEADERS]],
+    ...customSeed
+  };
+  invalidateAllMediaCaches();
+}
+function clearMockSheetsStore() {
+  mockSheetsStore = null;
+  invalidateAllMediaCaches();
+}
+function isMockStoreActive() {
+  return mockSheetsStore !== null;
+}
+function shouldUseMockDriver() {
+  return mockSheetsStore !== null;
+}
+async function validateSpreadsheet() {
+  if (shouldUseMockDriver()) {
+    return {
+      valid: true,
+      tabs: [...REQUIRED_TABS],
+      missingTabs: [],
+      headerMismatches: {}
+    };
+  }
+  if (!isSheetsConfigured()) {
+    throw new SheetsUnavailableError("Google Sheets credentials are not configured in environment");
+  }
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const existingTabs = (meta.data.sheets?.map((s) => s.properties?.title) || []).filter(Boolean);
+  const missingTabs = REQUIRED_TABS.filter((t) => !existingTabs.includes(t));
+  if (missingTabs.length > 0) {
+    throw new SchemaMismatchError(`Missing required spreadsheet tabs: ${missingTabs.join(", ")}`, {
+      missingTabs
+    });
+  }
+  const headerMismatches = {};
+  const expectedMap = {
+    MediaItems: EXPECTED_MEDIA_ITEMS_HEADERS,
+    SocialChannels: EXPECTED_SOCIAL_CHANNELS_HEADERS,
+    MediaPermissions: EXPECTED_MEDIA_PERMISSIONS_HEADERS,
+    ActivityLog: EXPECTED_ACTIVITY_LOG_HEADERS
+  };
+  for (const tab of REQUIRED_TABS) {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${tab}!1:1`
+    });
+    const foundHeaders = (res.data.values?.[0] || []).map((h) => String(h).trim());
+    const expected = expectedMap[tab];
+    const missingHeaders = expected.filter((exp, idx) => {
+      const found = foundHeaders[idx];
+      return !found || found.toLowerCase() !== exp.toLowerCase();
+    });
+    if (missingHeaders.length > 0) {
+      headerMismatches[tab] = {
+        expected: [...expected],
+        found: foundHeaders
+      };
+    }
+  }
+  if (Object.keys(headerMismatches).length > 0) {
+    throw new SchemaMismatchError(
+      `Spreadsheet schema mismatch detected. Stopping operations to prevent data corruption.`,
+      { headerMismatches }
+    );
+  }
+  return {
+    valid: true,
+    tabs: existingTabs,
+    missingTabs: [],
+    headerMismatches: {}
+  };
+}
+function parseBooleanCell(val) {
+  if (typeof val === "boolean") return val;
+  if (!val) return false;
+  const s = String(val).trim().toUpperCase();
+  return s === "TRUE" || s === "1" || s === "YES";
+}
+function parseMediaItemRow(row) {
+  const mediaId = String(row[0] || "").trim();
+  const category = String(row[1] || "GENERAL").trim().toUpperCase();
+  const mediaType = String(row[2] || "PHOTO").trim().toUpperCase();
+  const title = String(row[3] || "").trim();
+  const description = String(row[4] || "").trim();
+  const driveFileId = String(row[5] || "").trim();
+  const driveFileName = String(row[6] || "").trim();
+  const driveViewUrl = String(row[7] || "").trim();
+  const publicMediaUrl = String(row[8] || "").trim();
+  const thumbnailUrl = String(row[9] || "").trim();
+  const showOnHome = parseBooleanCell(row[10]);
+  const rawStatus = String(row[11] || "DRAFT").trim().toUpperCase();
+  const status = ["PUBLISHED", "DRAFT", "ARCHIVED", "DELETED"].includes(rawStatus) ? rawStatus : "DRAFT";
+  const createdByUid = String(row[12] || "").trim();
+  const createdByEmail = String(row[13] || "").trim();
+  const createdAt = String(row[14] || (/* @__PURE__ */ new Date()).toISOString()).trim();
+  const updatedByUid = String(row[15] || "").trim();
+  const updatedAt = String(row[16] || createdAt).trim();
+  const publishedAt = String(row[17] || "").trim();
+  const sortOrder = parseInt(String(row[18] || "0"), 10) || 0;
+  const displayImage = publicMediaUrl || thumbnailUrl || driveViewUrl || "";
+  const displayDate = publishedAt ? new Date(publishedAt).toLocaleDateString("en-US", { month: "long", day: "2-digit", year: "numeric" }) : new Date(createdAt).toLocaleDateString("en-US", { month: "long", day: "2-digit", year: "numeric" });
+  return {
+    mediaId,
+    category,
+    mediaType,
+    title,
+    description,
+    driveFileId,
+    driveFileName,
+    driveViewUrl,
+    publicMediaUrl,
+    thumbnailUrl,
+    showOnHome,
+    status,
+    createdByUid,
+    createdByEmail,
+    createdAt,
+    updatedByUid,
+    updatedAt,
+    publishedAt,
+    sortOrder,
+    // Aliases
+    id: mediaId,
+    type: mediaType,
+    imageUrl: displayImage,
+    img: displayImage,
+    caption: description,
+    order: sortOrder,
+    date: displayDate,
+    videoUrl: mediaType === "VIDEO" ? publicMediaUrl || driveViewUrl : void 0,
+    linkUrl: publicMediaUrl || driveViewUrl || void 0
+  };
+}
+function sanitizePublicMediaItem(item) {
+  const streamUrl = `/api/public/media/stream/${item.mediaId}`;
+  return {
+    mediaId: item.mediaId,
+    category: item.category,
+    mediaType: item.mediaType,
+    title: item.title,
+    description: item.description,
+    driveFileId: "",
+    // Hidden from public callers
+    driveFileName: "",
+    // Hidden from public callers
+    driveViewUrl: "",
+    // Hidden from public callers
+    publicMediaUrl: streamUrl,
+    thumbnailUrl: item.thumbnailUrl || streamUrl,
+    showOnHome: item.showOnHome,
+    status: item.status,
+    createdAt: item.createdAt,
+    publishedAt: item.publishedAt,
+    sortOrder: item.sortOrder,
+    // Aliases
+    id: item.mediaId,
+    type: item.mediaType,
+    imageUrl: item.thumbnailUrl || streamUrl,
+    img: item.thumbnailUrl || streamUrl,
+    caption: item.description,
+    order: item.sortOrder,
+    date: item.date,
+    videoUrl: item.mediaType === "VIDEO" ? streamUrl : void 0,
+    linkUrl: streamUrl
+  };
+}
+function mediaItemToRow(m) {
+  return [
+    m.mediaId || "",
+    m.category || "",
+    m.mediaType || "",
+    m.title || "",
+    m.description || "",
+    m.driveFileId || "",
+    m.driveFileName || "",
+    m.driveViewUrl || "",
+    m.publicMediaUrl || "",
+    m.thumbnailUrl || "",
+    m.showOnHome ? "TRUE" : "FALSE",
+    m.status || "DRAFT",
+    m.createdByUid || "",
+    m.createdByEmail || "",
+    m.createdAt || "",
+    m.updatedByUid || "",
+    m.updatedAt || "",
+    m.publishedAt || "",
+    String(m.sortOrder ?? 0)
+  ];
+}
+function parseSocialChannelRow(row) {
+  const channelId = String(row[0] || "").trim();
+  const platform = String(row[1] || "").trim().toUpperCase();
+  const displayName = String(row[2] || "").trim();
+  const url = String(row[3] || "").trim();
+  const enabled = parseBooleanCell(row[4]);
+  const showOnHome = parseBooleanCell(row[5]);
+  const homepagePosition = parseInt(String(row[6] || "0"), 10) || 0;
+  const sortOrder = parseInt(String(row[7] || "0"), 10) || 0;
+  const createdByUid = String(row[8] || "").trim();
+  const createdByEmail = String(row[9] || "").trim();
+  const createdAt = String(row[10] || (/* @__PURE__ */ new Date()).toISOString()).trim();
+  const updatedByUid = String(row[11] || "").trim();
+  const updatedAt = String(row[12] || createdAt).trim();
+  const rawStatus = String(row[13] || "ACTIVE").trim().toUpperCase();
+  const status = rawStatus === "DELETED" ? "DELETED" : "ACTIVE";
+  let color = "text-blue-600";
+  if (platform.includes("YOUTUBE")) color = "text-red-600";
+  else if (platform.includes("FACEBOOK")) color = "text-blue-600";
+  else if (platform.includes("INSTAGRAM")) color = "text-pink-600";
+  else if (platform.includes("TWITTER")) color = "text-sky-500";
+  return {
+    channelId,
+    platform,
+    displayName,
+    url,
+    enabled,
+    showOnHome,
+    homepagePosition,
+    sortOrder,
+    createdByUid,
+    createdByEmail,
+    createdAt,
+    updatedByUid,
+    updatedAt,
+    status,
+    // Aliases
+    id: channelId,
+    name: displayName,
+    handle: displayName,
+    followers: "Verified",
+    color,
+    order: sortOrder || homepagePosition
+  };
+}
+function socialChannelToRow(c) {
+  return [
+    c.channelId || "",
+    c.platform || "",
+    c.displayName || "",
+    c.url || "",
+    c.enabled ? "TRUE" : "FALSE",
+    c.showOnHome ? "TRUE" : "FALSE",
+    String(c.homepagePosition ?? 0),
+    String(c.sortOrder ?? 0),
+    c.createdByUid || "",
+    c.createdByEmail || "",
+    c.createdAt || "",
+    c.updatedByUid || "",
+    c.updatedAt || "",
+    c.status || "ACTIVE"
+  ];
+}
+function parseMediaPermissionRow(row) {
+  return {
+    permissionId: String(row[0] || "").trim(),
+    userUid: String(row[1] || "").trim(),
+    userEmail: String(row[2] || "").trim(),
+    segment: String(row[3] || "").trim().toUpperCase(),
+    canRead: parseBooleanCell(row[4]),
+    canCreate: parseBooleanCell(row[5]),
+    canEdit: parseBooleanCell(row[6]),
+    canDelete: parseBooleanCell(row[7]),
+    grantedByUid: String(row[8] || "").trim(),
+    grantedByEmail: String(row[9] || "").trim(),
+    grantedAt: String(row[10] || "").trim(),
+    updatedAt: String(row[11] || "").trim(),
+    status: String(row[12] || "").trim().toUpperCase() === "REVOKED" ? "REVOKED" : "ACTIVE"
+  };
+}
+function mediaPermissionToRow(p) {
+  return [
+    p.permissionId || "",
+    p.userUid || "",
+    p.userEmail || "",
+    p.segment || "",
+    p.canRead ? "TRUE" : "FALSE",
+    p.canCreate ? "TRUE" : "FALSE",
+    p.canEdit ? "TRUE" : "FALSE",
+    p.canDelete ? "TRUE" : "FALSE",
+    p.grantedByUid || "",
+    p.grantedByEmail || "",
+    p.grantedAt || "",
+    p.updatedAt || "",
+    p.status || "ACTIVE"
+  ];
+}
+function parseActivityLogRow(row) {
+  let changes = {};
+  try {
+    changes = JSON.parse(String(row[10] || "{}"));
+  } catch {
+    changes = String(row[10] || "");
+  }
+  return {
+    activityId: String(row[0] || ""),
+    timestamp: String(row[1] || ""),
+    actorUid: String(row[2] || ""),
+    actorEmail: String(row[3] || ""),
+    actorRole: String(row[4] || ""),
+    action: String(row[5] || ""),
+    module: String(row[6] || "").toUpperCase() === "SOCIAL_HUB" ? "SOCIAL_HUB" : "MEDIA_CENTER",
+    segment: String(row[7] || ""),
+    recordId: String(row[8] || ""),
+    recordTitle: String(row[9] || ""),
+    changesSummary: changes,
+    result: String(row[11] || "SUCCESS").toUpperCase(),
+    requestId: String(row[12] || "")
+  };
+}
+function activityLogToRow(a) {
+  const summaryStr = typeof a.changesSummary === "string" ? a.changesSummary : JSON.stringify(a.changesSummary || {});
+  return [
+    a.activityId || `act_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    a.timestamp || (/* @__PURE__ */ new Date()).toISOString(),
+    a.actorUid || "",
+    a.actorEmail || "",
+    a.actorRole || "",
+    a.action || "",
+    a.module || "MEDIA_CENTER",
+    a.segment || "",
+    a.recordId || "",
+    a.recordTitle || "",
+    summaryStr,
+    a.result || "SUCCESS",
+    a.requestId || ""
+  ];
+}
+async function createAuditLog2(entry) {
+  const activityId = entry.activityId || `act_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const timestamp = entry.timestamp || (/* @__PURE__ */ new Date()).toISOString();
+  const fullEntry = {
+    ...entry,
+    activityId,
+    timestamp,
+    result: entry.result || "SUCCESS"
+  };
+  const row = activityLogToRow(fullEntry);
+  if (shouldUseMockDriver()) {
+    mockSheetsStore.ActivityLog.push(row);
+    return { success: true, activityId };
+  }
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  try {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: "ActivityLog!A:M",
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [row] }
+    });
+    return { success: true, activityId };
+  } catch (err) {
+    console.error("[ActivityLog] Failed to append audit row to Google Sheets ActivityLog:", err);
+    throw new Error(`Failed to persist audit log to ActivityLog: ${err.message || String(err)}`);
+  }
+}
+async function getMediaActivityLogs(options = {}) {
+  const limit = Math.min(options.limit || 50, 200);
+  let rows = [];
+  if (shouldUseMockDriver()) {
+    rows = mockSheetsStore.ActivityLog.slice(1);
+  } else {
+    const sheets = getSheetsClient();
+    const spreadsheetId = getSpreadsheetId();
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "ActivityLog!A2:M"
+    });
+    rows = res.data.values || [];
+  }
+  let entries = rows.map(parseActivityLogRow);
+  if (options.segment && options.actorRole !== "SUPER_ADMIN" /* SUPER_ADMIN */ && options.actorRole !== "super_admin") {
+    entries = entries.filter((e) => e.segment === options.segment);
+  }
+  entries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  return entries.slice(0, limit);
+}
+async function getMediaItems(options = {}) {
+  const now = Date.now();
+  let allItems;
+  if (mediaCache && now - mediaCache.timestamp < CACHE_TTL_MS2) {
+    allItems = mediaCache.data;
+  } else {
+    let rows = [];
+    if (shouldUseMockDriver()) {
+      rows = mockSheetsStore.MediaItems.slice(1);
+    } else {
+      const sheets = getSheetsClient();
+      const spreadsheetId = getSpreadsheetId();
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: "MediaItems!A2:S"
+      });
+      rows = res.data.values || [];
+    }
+    allItems = rows.map(parseMediaItemRow).filter((m) => Boolean(m.mediaId));
+    mediaCache = { data: allItems, timestamp: now };
+  }
+  let filtered = allItems;
+  if (!options.includeDeleted) {
+    filtered = filtered.filter((item) => item.status !== "DELETED");
+  }
+  if (options.status && options.status !== "ALL") {
+    filtered = filtered.filter((item) => item.status === options.status);
+  }
+  if (options.showOnHomeOnly) {
+    filtered = filtered.filter((item) => item.showOnHome === true && item.status === "PUBLISHED");
+  }
+  if (options.category && options.category !== "ALL" && options.category !== "ALL MEDIA") {
+    const targetCat = options.category.toUpperCase().replace(/\s+/g, "_");
+    filtered = filtered.filter((item) => {
+      const itemCat = item.category.toUpperCase().replace(/\s+/g, "_");
+      return itemCat === targetCat || item.category.toUpperCase() === options.category.toUpperCase();
+    });
+  }
+  if (options.mediaType && options.mediaType !== "ALL") {
+    filtered = filtered.filter((item) => item.mediaType === options.mediaType.toUpperCase());
+  }
+  if (options.search) {
+    const q = options.search.trim().toLowerCase();
+    filtered = filtered.filter(
+      (item) => item.title.toLowerCase().includes(q) || item.description.toLowerCase().includes(q) || item.category.toLowerCase().includes(q)
+    );
+  }
+  filtered.sort((a, b) => {
+    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+    const timeA = new Date(a.publishedAt || a.createdAt).getTime();
+    const timeB = new Date(b.publishedAt || b.createdAt).getTime();
+    return timeB - timeA;
+  });
+  const total = filtered.length;
+  const offset = options.offset || 0;
+  const limit = Math.min(options.limit || 50, 100);
+  const items = filtered.slice(offset, offset + limit);
+  return { items, total };
+}
+async function getMediaItemById(mediaId) {
+  const { items } = await getMediaItems({ limit: 1e3, includeDeleted: true });
+  return items.find((item) => item.mediaId === mediaId) || null;
+}
+async function createMediaItem(payload, actor) {
+  if (!payload.title || !payload.title.trim()) {
+    throw new Error("Media title is required");
+  }
+  const mediaId = payload.mediaId || `m_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const category = (payload.category || "PHOTO_GALLERY").toUpperCase().replace(/\s+/g, "_");
+  const mediaType = (payload.mediaType || payload.type || "PHOTO").toUpperCase();
+  const status = payload.status || "DRAFT";
+  const publishedAt = status === "PUBLISHED" ? payload.publishedAt || nowIso : "";
+  const newDoc = {
+    mediaId,
+    category,
+    mediaType,
+    title: payload.title.trim(),
+    description: (payload.description || payload.caption || "").trim(),
+    driveFileId: (payload.driveFileId || "").trim(),
+    driveFileName: (payload.driveFileName || "").trim(),
+    driveViewUrl: (payload.driveViewUrl || "").trim(),
+    publicMediaUrl: (payload.publicMediaUrl || payload.imageUrl || payload.img || "").trim(),
+    thumbnailUrl: (payload.thumbnailUrl || payload.imageUrl || payload.img || "").trim(),
+    showOnHome: Boolean(payload.showOnHome),
+    status,
+    createdByUid: actor.uid,
+    createdByEmail: actor.email,
+    createdAt: nowIso,
+    updatedByUid: actor.uid,
+    updatedAt: nowIso,
+    publishedAt,
+    sortOrder: typeof payload.sortOrder === "number" ? payload.sortOrder : payload.order || 0,
+    id: mediaId,
+    type: mediaType,
+    imageUrl: (payload.publicMediaUrl || payload.imageUrl || payload.img || "").trim(),
+    img: (payload.publicMediaUrl || payload.imageUrl || payload.img || "").trim(),
+    caption: (payload.description || payload.caption || "").trim(),
+    order: typeof payload.sortOrder === "number" ? payload.sortOrder : payload.order || 0,
+    date: new Date(nowIso).toLocaleDateString("en-US", { month: "long", day: "2-digit", year: "numeric" })
+  };
+  const row = mediaItemToRow(newDoc);
+  if (shouldUseMockDriver()) {
+    mockSheetsStore.MediaItems.push(row);
+  } else {
+    const sheets = getSheetsClient();
+    const spreadsheetId = getSpreadsheetId();
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: "MediaItems!A:S",
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [row] }
+    });
+  }
+  invalidateMediaCache();
+  let auditLogged = false;
+  let auditWarning;
+  try {
+    await createAuditLog2({
+      actorUid: actor.uid,
+      actorEmail: actor.email,
+      actorRole: actor.role,
+      action: "MEDIA_CREATED",
+      module: "MEDIA_CENTER",
+      segment: category,
+      recordId: mediaId,
+      recordTitle: newDoc.title,
+      changesSummary: { title: newDoc.title, category, mediaType, status: newDoc.status },
+      result: "SUCCESS",
+      requestId: actor.requestId
+    });
+    auditLogged = true;
+  } catch (auditErr) {
+    console.error("[MediaService] Entity saved to MediaItems, but ActivityLog write failed:", auditErr);
+    auditWarning = "Media item was saved to MediaItems, but audit logging to ActivityLog failed.";
+  }
+  return {
+    success: true,
+    item: newDoc,
+    auditLogged,
+    warning: auditWarning
+  };
+}
+async function updateMediaItem(mediaId, updates, actor) {
+  let rowIndex = -1;
+  let existingRow = null;
+  if (shouldUseMockDriver()) {
+    const idx = mockSheetsStore.MediaItems.findIndex((r, i) => i > 0 && r[0] === mediaId);
+    if (idx === -1) {
+      throw new Error(`Media item with ID '${mediaId}' not found in MediaItems`);
+    }
+    rowIndex = idx + 1;
+    existingRow = mockSheetsStore.MediaItems[idx];
+  } else {
+    const sheets = getSheetsClient();
+    const spreadsheetId = getSpreadsheetId();
+    const colRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "MediaItems!A:A"
+    });
+    const colA = colRes.data.values || [];
+    const foundIdx = colA.findIndex((r, i) => i > 0 && r[0] === mediaId);
+    if (foundIdx === -1) {
+      throw new Error(`Media item with ID '${mediaId}' not found in MediaItems`);
+    }
+    rowIndex = foundIdx + 1;
+    const rowRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `MediaItems!A${rowIndex}:S${rowIndex}`
+    });
+    existingRow = rowRes.data.values?.[0] || [];
+  }
+  const existingDoc = parseMediaItemRow(existingRow);
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const newStatus = updates.status || existingDoc.status;
+  let publishedAt = existingDoc.publishedAt;
+  if (newStatus === "PUBLISHED" && (!publishedAt || existingDoc.status !== "PUBLISHED")) {
+    publishedAt = nowIso;
+  }
+  const updatedDoc = {
+    ...existingDoc,
+    category: updates.category ? updates.category.toUpperCase().replace(/\s+/g, "_") : existingDoc.category,
+    mediaType: updates.mediaType || updates.type || existingDoc.mediaType,
+    title: updates.title !== void 0 ? updates.title.trim() : existingDoc.title,
+    description: updates.description !== void 0 ? updates.description.trim() : updates.caption !== void 0 ? updates.caption.trim() : existingDoc.description,
+    driveFileId: updates.driveFileId !== void 0 ? updates.driveFileId.trim() : existingDoc.driveFileId,
+    driveFileName: updates.driveFileName !== void 0 ? updates.driveFileName.trim() : existingDoc.driveFileName,
+    driveViewUrl: updates.driveViewUrl !== void 0 ? updates.driveViewUrl.trim() : existingDoc.driveViewUrl,
+    publicMediaUrl: updates.publicMediaUrl !== void 0 ? updates.publicMediaUrl.trim() : updates.imageUrl || updates.img || existingDoc.publicMediaUrl,
+    thumbnailUrl: updates.thumbnailUrl !== void 0 ? updates.thumbnailUrl.trim() : updates.imageUrl || updates.img || existingDoc.thumbnailUrl,
+    showOnHome: updates.showOnHome !== void 0 ? Boolean(updates.showOnHome) : existingDoc.showOnHome,
+    status: newStatus,
+    updatedByUid: actor.uid,
+    updatedAt: nowIso,
+    publishedAt,
+    sortOrder: typeof updates.sortOrder === "number" ? updates.sortOrder : updates.order ?? existingDoc.sortOrder,
+    // Aliases
+    id: mediaId,
+    type: updates.mediaType || updates.type || existingDoc.mediaType,
+    imageUrl: updates.publicMediaUrl || updates.imageUrl || updates.img || existingDoc.publicMediaUrl,
+    img: updates.publicMediaUrl || updates.imageUrl || updates.img || existingDoc.publicMediaUrl,
+    caption: updates.description || updates.caption || existingDoc.description,
+    order: typeof updates.sortOrder === "number" ? updates.sortOrder : updates.order ?? existingDoc.sortOrder,
+    date: existingDoc.date
+  };
+  const updatedRow = mediaItemToRow(updatedDoc);
+  if (shouldUseMockDriver()) {
+    mockSheetsStore.MediaItems[rowIndex - 1] = updatedRow;
+  } else {
+    const sheets = getSheetsClient();
+    const spreadsheetId = getSpreadsheetId();
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `MediaItems!A${rowIndex}:S${rowIndex}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [updatedRow] }
+    });
+  }
+  invalidateMediaCache();
+  let auditLogged = false;
+  let auditWarning;
+  try {
+    await createAuditLog2({
+      actorUid: actor.uid,
+      actorEmail: actor.email,
+      actorRole: actor.role,
+      action: "MEDIA_UPDATED",
+      module: "MEDIA_CENTER",
+      segment: updatedDoc.category,
+      recordId: mediaId,
+      recordTitle: updatedDoc.title,
+      changesSummary: updates,
+      result: "SUCCESS",
+      requestId: actor.requestId
+    });
+    auditLogged = true;
+  } catch (auditErr) {
+    console.error("[MediaService] Media updated, but ActivityLog append failed:", auditErr);
+    auditWarning = "Media item was updated in MediaItems, but audit logging to ActivityLog failed.";
+  }
+  return {
+    success: true,
+    item: updatedDoc,
+    auditLogged,
+    warning: auditWarning
+  };
+}
+async function deleteMediaItem(mediaId, actor) {
+  const result = await updateMediaItem(
+    mediaId,
+    {
+      status: "DELETED",
+      showOnHome: false
+    },
+    actor
+  );
+  return {
+    success: true,
+    auditLogged: result.auditLogged,
+    warning: result.warning
+  };
+}
+async function getSocialChannels(options = {}) {
+  const now = Date.now();
+  let allChannels;
+  if (socialCache && now - socialCache.timestamp < CACHE_TTL_MS2) {
+    allChannels = socialCache.data;
+  } else {
+    let rows = [];
+    if (shouldUseMockDriver()) {
+      rows = mockSheetsStore.SocialChannels.slice(1);
+    } else {
+      const sheets = getSheetsClient();
+      const spreadsheetId = getSpreadsheetId();
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: "SocialChannels!A2:N"
+      });
+      rows = res.data.values || [];
+    }
+    allChannels = rows.map(parseSocialChannelRow).filter((c) => Boolean(c.channelId));
+    socialCache = { data: allChannels, timestamp: now };
+  }
+  let filtered = allChannels;
+  if (!options.includeDeleted) {
+    filtered = filtered.filter((c) => c.status !== "DELETED");
+  }
+  if (options.onlyEnabled) {
+    filtered = filtered.filter((c) => c.enabled === true);
+  }
+  if (options.showOnHomeOnly) {
+    filtered = filtered.filter((c) => c.showOnHome === true && c.enabled === true);
+  }
+  filtered.sort((a, b) => {
+    if (a.homepagePosition !== b.homepagePosition) return a.homepagePosition - b.homepagePosition;
+    return a.sortOrder - b.sortOrder;
+  });
+  return filtered;
+}
+async function getSocialChannelById(channelId) {
+  const channels = await getSocialChannels({ includeDeleted: true });
+  return channels.find((c) => c.channelId === channelId) || null;
+}
+async function createSocialChannel(payload, actor) {
+  if (!payload.platform || !payload.displayName) {
+    throw new Error("Social channel platform and displayName are required");
+  }
+  const channelId = payload.channelId || `soc_${Date.now()}`;
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const newDoc = {
+    channelId,
+    platform: payload.platform.trim().toUpperCase(),
+    displayName: (payload.displayName || payload.name || "").trim(),
+    url: (payload.url || "").trim(),
+    enabled: payload.enabled !== false,
+    showOnHome: Boolean(payload.showOnHome),
+    homepagePosition: typeof payload.homepagePosition === "number" ? payload.homepagePosition : 0,
+    sortOrder: typeof payload.sortOrder === "number" ? payload.sortOrder : payload.order || 0,
+    createdByUid: actor.uid,
+    createdByEmail: actor.email,
+    createdAt: nowIso,
+    updatedByUid: actor.uid,
+    updatedAt: nowIso,
+    status: payload.status || "ACTIVE",
+    id: channelId,
+    name: (payload.displayName || payload.name || "").trim(),
+    handle: (payload.displayName || payload.name || "").trim(),
+    followers: "Verified",
+    color: "text-blue-600",
+    order: payload.sortOrder || payload.homepagePosition || 0
+  };
+  const row = socialChannelToRow(newDoc);
+  if (shouldUseMockDriver()) {
+    mockSheetsStore.SocialChannels.push(row);
+  } else {
+    const sheets = getSheetsClient();
+    const spreadsheetId = getSpreadsheetId();
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: "SocialChannels!A:N",
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [row] }
+    });
+  }
+  invalidateSocialCache();
+  let auditLogged = false;
+  let auditWarning;
+  try {
+    await createAuditLog2({
+      actorUid: actor.uid,
+      actorEmail: actor.email,
+      actorRole: actor.role,
+      action: "SOCIAL_CHANNEL_CREATED",
+      module: "SOCIAL_HUB",
+      segment: "SOCIAL_HUB",
+      recordId: channelId,
+      recordTitle: newDoc.displayName,
+      changesSummary: { displayName: newDoc.displayName, platform: newDoc.platform, url: newDoc.url },
+      result: "SUCCESS",
+      requestId: actor.requestId
+    });
+    auditLogged = true;
+  } catch (auditErr) {
+    console.error("[SocialService] Channel created, but ActivityLog append failed:", auditErr);
+    auditWarning = "Channel created in SocialChannels, but audit logging failed.";
+  }
+  return {
+    success: true,
+    channel: newDoc,
+    auditLogged,
+    warning: auditWarning
+  };
+}
+async function updateSocialChannel(channelId, updates, actor) {
+  let rowIndex = -1;
+  let existingRow = null;
+  if (shouldUseMockDriver()) {
+    const idx = mockSheetsStore.SocialChannels.findIndex((r, i) => i > 0 && r[0] === channelId);
+    if (idx === -1) {
+      throw new Error(`Social channel with ID '${channelId}' not found in SocialChannels`);
+    }
+    rowIndex = idx + 1;
+    existingRow = mockSheetsStore.SocialChannels[idx];
+  } else {
+    const sheets = getSheetsClient();
+    const spreadsheetId = getSpreadsheetId();
+    const colRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "SocialChannels!A:A"
+    });
+    const colA = colRes.data.values || [];
+    const foundIdx = colA.findIndex((r, i) => i > 0 && r[0] === channelId);
+    if (foundIdx === -1) {
+      throw new Error(`Social channel with ID '${channelId}' not found in SocialChannels`);
+    }
+    rowIndex = foundIdx + 1;
+    const rowRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `SocialChannels!A${rowIndex}:N${rowIndex}`
+    });
+    existingRow = rowRes.data.values?.[0] || [];
+  }
+  const existingDoc = parseSocialChannelRow(existingRow);
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const updatedDoc = {
+    ...existingDoc,
+    platform: updates.platform ? updates.platform.trim().toUpperCase() : existingDoc.platform,
+    displayName: updates.displayName !== void 0 ? updates.displayName.trim() : updates.name !== void 0 ? updates.name.trim() : existingDoc.displayName,
+    url: updates.url !== void 0 ? updates.url.trim() : existingDoc.url,
+    enabled: updates.enabled !== void 0 ? Boolean(updates.enabled) : existingDoc.enabled,
+    showOnHome: updates.showOnHome !== void 0 ? Boolean(updates.showOnHome) : existingDoc.showOnHome,
+    homepagePosition: typeof updates.homepagePosition === "number" ? updates.homepagePosition : existingDoc.homepagePosition,
+    sortOrder: typeof updates.sortOrder === "number" ? updates.sortOrder : updates.order !== void 0 ? updates.order : existingDoc.sortOrder,
+    updatedByUid: actor.uid,
+    updatedAt: nowIso,
+    status: updates.status || existingDoc.status,
+    id: channelId,
+    name: updates.displayName || updates.name || existingDoc.displayName,
+    handle: updates.displayName || updates.name || existingDoc.displayName,
+    followers: existingDoc.followers,
+    color: existingDoc.color,
+    order: updates.sortOrder ?? existingDoc.sortOrder
+  };
+  const updatedRow = socialChannelToRow(updatedDoc);
+  if (shouldUseMockDriver()) {
+    mockSheetsStore.SocialChannels[rowIndex - 1] = updatedRow;
+  } else {
+    const sheets = getSheetsClient();
+    const spreadsheetId = getSpreadsheetId();
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `SocialChannels!A${rowIndex}:N${rowIndex}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [updatedRow] }
+    });
+  }
+  invalidateSocialCache();
+  let auditLogged = false;
+  let auditWarning;
+  try {
+    await createAuditLog2({
+      actorUid: actor.uid,
+      actorEmail: actor.email,
+      actorRole: actor.role,
+      action: "SOCIAL_CHANNEL_UPDATED",
+      module: "SOCIAL_HUB",
+      segment: "SOCIAL_HUB",
+      recordId: channelId,
+      recordTitle: updatedDoc.displayName,
+      changesSummary: updates,
+      result: "SUCCESS",
+      requestId: actor.requestId
+    });
+    auditLogged = true;
+  } catch (auditErr) {
+    console.error("[SocialService] Channel updated, but ActivityLog failed:", auditErr);
+    auditWarning = "Channel updated, but ActivityLog append failed.";
+  }
+  return {
+    success: true,
+    channel: updatedDoc,
+    auditLogged,
+    warning: auditWarning
+  };
+}
+async function deleteSocialChannel(channelId, actor) {
+  const result = await updateSocialChannel(
+    channelId,
+    {
+      status: "DELETED",
+      enabled: false,
+      showOnHome: false
+    },
+    actor
+  );
+  return {
+    success: true,
+    auditLogged: result.auditLogged,
+    warning: result.warning
+  };
+}
+async function getSegmentPermissions() {
+  const now = Date.now();
+  if (permissionsCache && now - permissionsCache.timestamp < CACHE_TTL_MS2) {
+    return permissionsCache.data;
+  }
+  let rows = [];
+  if (shouldUseMockDriver()) {
+    rows = mockSheetsStore.MediaPermissions.slice(1);
+  } else {
+    const sheets = getSheetsClient();
+    const spreadsheetId = getSpreadsheetId();
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "MediaPermissions!A2:M"
+    });
+    rows = res.data.values || [];
+  }
+  const grants = rows.map(parseMediaPermissionRow).filter((p) => Boolean(p.permissionId));
+  permissionsCache = { data: grants, timestamp: now };
+  return grants;
+}
+async function grantSegmentPermission(payload, actor) {
+  const segment = payload.segment.toUpperCase().replace(/\s+/g, "_");
+  if (!VALID_MEDIA_SEGMENTS.includes(segment)) {
+    throw new Error(
+      `Invalid segment '${segment}'. Must be one of: ${VALID_MEDIA_SEGMENTS.join(", ")}`
+    );
+  }
+  const permissionId = `perm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const doc = {
+    permissionId,
+    userUid: payload.userUid.trim(),
+    userEmail: payload.userEmail.trim().toLowerCase(),
+    segment,
+    canRead: payload.canRead !== false,
+    canCreate: Boolean(payload.canCreate),
+    canEdit: Boolean(payload.canEdit),
+    canDelete: Boolean(payload.canDelete),
+    grantedByUid: actor.uid,
+    grantedByEmail: actor.email,
+    grantedAt: nowIso,
+    updatedAt: nowIso,
+    status: "ACTIVE"
+  };
+  const row = mediaPermissionToRow(doc);
+  if (shouldUseMockDriver()) {
+    mockSheetsStore.MediaPermissions.push(row);
+  } else {
+    const sheets = getSheetsClient();
+    const spreadsheetId = getSpreadsheetId();
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: "MediaPermissions!A:M",
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [row] }
+    });
+  }
+  invalidatePermissionsCache();
+  await createAuditLog2({
+    actorUid: actor.uid,
+    actorEmail: actor.email,
+    actorRole: actor.role,
+    action: "PERMISSION_GRANTED",
+    module: "MEDIA_CENTER",
+    segment,
+    recordId: permissionId,
+    recordTitle: `${payload.userEmail} -> ${segment}`,
+    changesSummary: { segment, rights: { read: doc.canRead, create: doc.canCreate, edit: doc.canEdit, delete: doc.canDelete } },
+    result: "SUCCESS",
+    requestId: actor.requestId
+  });
+  return { success: true, permission: doc };
+}
+async function revokeSegmentPermission(permissionId, actor) {
+  let rowIndex = -1;
+  let existingRow = null;
+  if (shouldUseMockDriver()) {
+    const idx = mockSheetsStore.MediaPermissions.findIndex((r, i) => i > 0 && r[0] === permissionId);
+    if (idx === -1) {
+      throw new Error(`Permission grant '${permissionId}' not found in MediaPermissions`);
+    }
+    rowIndex = idx + 1;
+    existingRow = mockSheetsStore.MediaPermissions[idx];
+  } else {
+    const sheets = getSheetsClient();
+    const spreadsheetId = getSpreadsheetId();
+    const colRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "MediaPermissions!A:A"
+    });
+    const colA = colRes.data.values || [];
+    const foundIdx = colA.findIndex((r, i) => i > 0 && r[0] === permissionId);
+    if (foundIdx === -1) {
+      throw new Error(`Permission grant '${permissionId}' not found in MediaPermissions`);
+    }
+    rowIndex = foundIdx + 1;
+    const rowRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `MediaPermissions!A${rowIndex}:M${rowIndex}`
+    });
+    existingRow = rowRes.data.values?.[0] || [];
+  }
+  const existing = parseMediaPermissionRow(existingRow);
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const updated = {
+    ...existing,
+    status: "REVOKED",
+    updatedAt: nowIso
+  };
+  const updatedRow = mediaPermissionToRow(updated);
+  if (shouldUseMockDriver()) {
+    mockSheetsStore.MediaPermissions[rowIndex - 1] = updatedRow;
+  } else {
+    const sheets = getSheetsClient();
+    const spreadsheetId = getSpreadsheetId();
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `MediaPermissions!A${rowIndex}:M${rowIndex}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [updatedRow] }
+    });
+  }
+  invalidatePermissionsCache();
+  await createAuditLog2({
+    actorUid: actor.uid,
+    actorEmail: actor.email,
+    actorRole: actor.role,
+    action: "PERMISSION_REVOKED",
+    module: "MEDIA_CENTER",
+    segment: existing.segment,
+    recordId: permissionId,
+    recordTitle: `${existing.userEmail} -> ${existing.segment}`,
+    changesSummary: { status: "REVOKED" },
+    result: "SUCCESS",
+    requestId: actor.requestId
+  });
+  return { success: true };
+}
+async function checkUserSegmentPermission(user, segment, action = "read") {
+  if (!user) return false;
+  const role = (user.role || "").toUpperCase();
+  if (role === "SUPER_ADMIN" /* SUPER_ADMIN */ || role === "SUPER_ADMIN" || role === "SUPERADMIN") {
+    return true;
+  }
+  const userEmail = (user.email || "").toLowerCase().trim();
+  const userUid = user.uid || "";
+  const normalizedSegment = segment.toUpperCase().replace(/\s+/g, "_");
+  const grants = await getSegmentPermissions();
+  const activeGrants = grants.filter(
+    (g) => g.status === "ACTIVE" && g.segment === normalizedSegment && (userEmail && g.userEmail.toLowerCase() === userEmail || userUid && g.userUid === userUid)
+  );
+  if (activeGrants.length === 0) {
+    return false;
+  }
+  switch (action) {
+    case "read":
+      return activeGrants.some((g) => g.canRead);
+    case "create":
+      return activeGrants.some((g) => g.canCreate);
+    case "edit":
+      return activeGrants.some((g) => g.canEdit);
+    case "delete":
+      return activeGrants.some((g) => g.canDelete);
+    default:
+      return false;
+  }
+}
+function getMediaPermissions() {
+  return [
+    {
+      role: "SUPER_ADMIN" /* SUPER_ADMIN */,
+      description: "Universal control across all segments, Google Drive OAuth, and Sheets permissions",
+      canRead: true,
+      canCreate: true,
+      canEdit: true,
+      canDelete: true,
+      canGrant: true
+    },
+    {
+      role: "ADMIN" /* ADMIN */,
+      description: "Administrative access subject to segment-specific grants in MediaPermissions tab",
+      canRead: true,
+      canCreate: true,
+      canEdit: true,
+      canDelete: true,
+      canGrant: false
+    },
+    {
+      role: "MEDIA_MANAGER" /* MEDIA_MANAGER */,
+      description: "Dedicated manager for assigned media segments in MediaPermissions tab",
+      canRead: true,
+      canCreate: true,
+      canEdit: true,
+      canDelete: false,
+      canGrant: false
+    },
+    {
+      role: "CONTENT_MANAGER" /* CONTENT_MANAGER */,
+      description: "Content creator with draft creation permissions for assigned segments",
+      canRead: true,
+      canCreate: true,
+      canEdit: false,
+      canDelete: false,
+      canGrant: false
+    },
+    {
+      role: "VIEWER" /* VIEWER */,
+      description: "Read-only access to published media assets",
+      canRead: true,
+      canCreate: false,
+      canEdit: false,
+      canDelete: false,
+      canGrant: false
+    }
+  ];
+}
+var DEFAULT_SPREADSHEET_ID, DEFAULT_DRIVE_FOLDER_ID, REQUIRED_TABS, VALID_MEDIA_SEGMENTS, EXPECTED_MEDIA_ITEMS_HEADERS, EXPECTED_SOCIAL_CHANNELS_HEADERS, EXPECTED_MEDIA_PERMISSIONS_HEADERS, EXPECTED_ACTIVITY_LOG_HEADERS, SheetsUnavailableError, SchemaMismatchError, CACHE_TTL_MS2, mediaCache, socialCache, permissionsCache, getSpreadsheetId, isSheetsConfigured, getGoogleAuth, getSheetsClient, mockSheetsStore;
+var init_mediaService = __esm({
+  "src/lib/mediaService.ts"() {
+    init_types();
+    DEFAULT_SPREADSHEET_ID = "1VgR34P0CJNweC4lsuRUHTN2z3BCHaV0fdBgAAozNOWo";
+    DEFAULT_DRIVE_FOLDER_ID = "1gIQLW7nwr2ZwZMDlFicWD9aGTn7MX9hh";
+    REQUIRED_TABS = ["MediaItems", "SocialChannels", "MediaPermissions", "ActivityLog"];
+    VALID_MEDIA_SEGMENTS = [
+      "PHOTO_GALLERY",
+      "VIDEO_GALLERY",
+      "PRESS_RELEASES",
+      "NEWS_COVERAGE",
+      "INTERVIEWS",
+      "SOCIAL_HUB"
+    ];
+    EXPECTED_MEDIA_ITEMS_HEADERS = [
+      "mediaId",
+      "category",
+      "mediaType",
+      "title",
+      "description",
+      "driveFileId",
+      "driveFileName",
+      "driveViewUrl",
+      "publicMediaUrl",
+      "thumbnailUrl",
+      "showOnHome",
+      "status",
+      "createdByUid",
+      "createdByEmail",
+      "createdAt",
+      "updatedByUid",
+      "updatedAt",
+      "publishedAt",
+      "sortOrder"
+    ];
+    EXPECTED_SOCIAL_CHANNELS_HEADERS = [
+      "channelId",
+      "platform",
+      "displayName",
+      "url",
+      "enabled",
+      "showOnHome",
+      "homepagePosition",
+      "sortOrder",
+      "createdByUid",
+      "createdByEmail",
+      "createdAt",
+      "updatedByUid",
+      "updatedAt",
+      "status"
+    ];
+    EXPECTED_MEDIA_PERMISSIONS_HEADERS = [
+      "permissionId",
+      "userUid",
+      "userEmail",
+      "segment",
+      "canRead",
+      "canCreate",
+      "canEdit",
+      "canDelete",
+      "grantedByUid",
+      "grantedByEmail",
+      "grantedAt",
+      "updatedAt",
+      "status"
+    ];
+    EXPECTED_ACTIVITY_LOG_HEADERS = [
+      "activityId",
+      "timestamp",
+      "actorUid",
+      "actorEmail",
+      "actorRole",
+      "action",
+      "module",
+      "segment",
+      "recordId",
+      "recordTitle",
+      "changesSummary",
+      "result",
+      "requestId"
+    ];
+    SheetsUnavailableError = class extends Error {
+      constructor(message = "Google Sheets service unavailable") {
+        super(message);
+        this.name = "SheetsUnavailableError";
+        this.statusCode = 503;
+      }
+    };
+    SchemaMismatchError = class extends Error {
+      constructor(message, details = {}) {
+        super(message);
+        this.name = "SchemaMismatchError";
+        this.statusCode = 500;
+        this.details = details;
+      }
+    };
+    CACHE_TTL_MS2 = 2e4;
+    mediaCache = null;
+    socialCache = null;
+    permissionsCache = null;
+    getSpreadsheetId = () => {
+      return process.env.GOOGLE_SHEET_ID || DEFAULT_SPREADSHEET_ID;
+    };
+    isSheetsConfigured = () => {
+      return Boolean(
+        process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY
+      );
+    };
+    getGoogleAuth = () => {
+      if (!isSheetsConfigured()) {
+        return null;
+      }
+      return new google.auth.JWT({
+        email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+        key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+      });
+    };
+    getSheetsClient = () => {
+      const auth = getGoogleAuth();
+      if (!auth) {
+        throw new SheetsUnavailableError(
+          "Google Sheets credentials unconfigured. Missing GOOGLE_SERVICE_ACCOUNT_EMAIL or GOOGLE_PRIVATE_KEY."
+        );
+      }
+      return google.sheets({ version: "v4", auth });
+    };
+    mockSheetsStore = null;
+  }
+});
+
 // src/serverApp.ts
 import express from "express";
 import cookieParser from "cookie-parser";
 import { GoogleGenAI } from "@google/genai";
-import { google } from "googleapis";
+import { google as google3 } from "googleapis";
 import rateLimit from "express-rate-limit";
+import crypto2 from "crypto";
 
 // src/lib/mongodb.ts
 import { MongoClient } from "mongodb";
@@ -854,6 +2145,7 @@ async function seedInitialHomeData(force = false) {
 }
 
 // src/lib/authMiddleware.ts
+init_types();
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 
@@ -882,6 +2174,7 @@ var ALL_HOMEPAGE_SECTION_IDS = [
 ];
 
 // src/lib/userService.ts
+init_types();
 var DB_NAME = process.env.MONGODB_DB_NAME || "chintadaravikumar";
 var USERS_COLLECTION = "admin_users";
 var AUDIT_LOGS_COLLECTION = "audit_logs";
@@ -1482,6 +2775,99 @@ async function requireSectionEditPermission(req, res, next) {
     res.status(500).json({ error: "Internal authorization error" });
   }
 }
+async function requireMediaAccess(req, res, next) {
+  try {
+    const user = await resolveAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    if (user.status !== "APPROVED" /* APPROVED */ && !isSuperAdmin(user)) {
+      try {
+        const { getSegmentPermissions: getSegmentPermissions2 } = await Promise.resolve().then(() => (init_mediaService(), mediaService_exports));
+        const grants = await getSegmentPermissions2();
+        const hasGrant = grants.some(
+          (g) => g.status === "ACTIVE" && (user.email && g.userEmail.toLowerCase() === user.email.toLowerCase() || user.uid && g.userUid === user.uid)
+        );
+        if (!hasGrant) {
+          return res.status(403).json({ error: "Access Pending Approval" });
+        }
+      } catch {
+        return res.status(403).json({ error: "Access Pending Approval" });
+      }
+    }
+    let hasAccess = isSuperAdmin(user) || user.role === "ADMIN" /* ADMIN */ || user.role === "MEDIA_MANAGER" /* MEDIA_MANAGER */ || canUserEditSection(user, "media_center") || canUserEditSection(user, "media_page") || canUserEditSection(user, "social_hub") || user.permissions && (user.permissions.includes("*") || user.permissions.includes("media:*"));
+    if (!hasAccess) {
+      try {
+        const { getSegmentPermissions: getSegmentPermissions2 } = await Promise.resolve().then(() => (init_mediaService(), mediaService_exports));
+        const grants = await getSegmentPermissions2();
+        hasAccess = grants.some(
+          (g) => g.status === "ACTIVE" && (user.email && g.userEmail.toLowerCase() === user.email.toLowerCase() || user.uid && g.userUid === user.uid)
+        );
+      } catch {
+      }
+    }
+    if (!hasAccess) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: `Account '${user.email}' (${user.role}) is not authorized to manage Media Center or Social Hub.`
+      });
+    }
+    req.user = user;
+    next();
+  } catch (err) {
+    console.error("[Auth] requireMediaAccess error:", err);
+    res.status(500).json({ error: "Internal authorization error" });
+  }
+}
+function requireSegmentAccess(segmentOrResolver, action = "read") {
+  return async (req, res, next) => {
+    try {
+      const user = await resolveAuthUser(req);
+      if (!user) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      if (user.status !== "APPROVED" /* APPROVED */ && !isSuperAdmin(user)) {
+        try {
+          const { getSegmentPermissions: getSegmentPermissions2 } = await Promise.resolve().then(() => (init_mediaService(), mediaService_exports));
+          const grants = await getSegmentPermissions2();
+          const hasGrant = grants.some(
+            (g) => g.status === "ACTIVE" && (user.email && g.userEmail.toLowerCase() === user.email.toLowerCase() || user.uid && g.userUid === user.uid)
+          );
+          if (!hasGrant) {
+            return res.status(403).json({ error: "Access Pending Approval" });
+          }
+        } catch {
+          return res.status(403).json({ error: "Access Pending Approval" });
+        }
+      }
+      if (isSuperAdmin(user)) {
+        req.user = user;
+        return next();
+      }
+      let segment = "";
+      if (typeof segmentOrResolver === "function") {
+        segment = segmentOrResolver(req);
+      } else if (typeof segmentOrResolver === "string") {
+        segment = segmentOrResolver;
+      } else {
+        segment = req.body?.category || req.query?.category || req.params?.category || "PHOTO_GALLERY";
+      }
+      const { checkUserSegmentPermission: checkUserSegmentPermission2 } = await Promise.resolve().then(() => (init_mediaService(), mediaService_exports));
+      const hasPermission = await checkUserSegmentPermission2(user, segment, action);
+      if (!hasPermission) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: `Account '${user.email}' lacks '${action}' permission for media segment '${segment}'.`
+        });
+      }
+      req.user = user;
+      next();
+    } catch (err) {
+      console.error("[Auth] requireSegmentAccess error:", err);
+      res.status(500).json({ error: "Internal authorization error" });
+    }
+  };
+}
 var SUBMISSION_PERMISSIONS_MAP = {
   contact: {
     roles: ["SUPER_ADMIN" /* SUPER_ADMIN */, "ADMIN" /* ADMIN */, "OFFICE_MANAGER" /* OFFICE_MANAGER */, "PUBLIC_RELATIONS_MANAGER" /* PUBLIC_RELATIONS_MANAGER */, "OUTREACH_MANAGER" /* OUTREACH_MANAGER */],
@@ -1575,11 +2961,447 @@ function requireSubmissionAccess(action = "read") {
 }
 
 // src/serverApp.ts
-var getGoogleAuth = () => {
+init_mediaService();
+
+// src/lib/driveAuth.ts
+import { google as google2 } from "googleapis";
+import crypto from "crypto";
+import { Readable } from "stream";
+var DEFAULT_DRIVE_FOLDER_ID2 = "1gIQLW7nwr2ZwZMDlFicWD9aGTn7MX9hh";
+var ALGORITHM = "aes-256-gcm";
+var ENCRYPTION_KEY = Buffer.from(process.env.ENCRYPTION_KEY || "", "hex");
+var ALLOWED_MIME_TYPES = {
+  // Images (max 25MB)
+  "image/jpeg": { ext: [".jpg", ".jpeg"], maxSize: 25 * 1024 * 1024, type: "PHOTO" },
+  "image/png": { ext: [".png"], maxSize: 25 * 1024 * 1024, type: "PHOTO" },
+  "image/webp": { ext: [".webp"], maxSize: 25 * 1024 * 1024, type: "PHOTO" },
+  "image/gif": { ext: [".gif"], maxSize: 25 * 1024 * 1024, type: "PHOTO" },
+  // Videos (max 100MB)
+  "video/mp4": { ext: [".mp4"], maxSize: 100 * 1024 * 1024, type: "VIDEO" },
+  "video/webm": { ext: [".webm"], maxSize: 100 * 1024 * 1024, type: "VIDEO" },
+  "video/quicktime": { ext: [".mov"], maxSize: 100 * 1024 * 1024, type: "VIDEO" },
+  // Documents (max 25MB)
+  "application/pdf": { ext: [".pdf"], maxSize: 25 * 1024 * 1024, type: "REPORT" }
+};
+function sanitizeFileName(name) {
+  if (!name || typeof name !== "string") return "media_file";
+  const base = name.replace(/[/\\?%*:|"<>]/g, "_").trim();
+  const cleaned = base.replace(/\.\.+/g, ".").replace(/^\.+/, "");
+  return (cleaned || "media_file").substring(0, 100);
+}
+var DriveIntegrationError = class extends Error {
+  constructor(message = "Google Drive integration error", statusCode = 503, details) {
+    super(message);
+    this.name = "DriveIntegrationError";
+    this.statusCode = statusCode;
+    this.details = details;
+  }
+};
+var mockDriveFiles = /* @__PURE__ */ new Map();
+var mockDriveActive = false;
+function isMockDriveActive() {
+  return mockDriveActive;
+}
+var createOAuthTransaction = async (uid, state) => {
+  const client2 = await getMongoClient();
+  if (!client2) {
+    throw new Error("MongoDB client unavailable");
+  }
+  const db = client2.db(getMongoDbName());
+  const hashedState = crypto.createHash("sha256").update(state).digest("hex");
+  await db.collection("oauth_transactions").insertOne({
+    stateHash: hashedState,
+    uid,
+    expires: new Date(Date.now() + 6e5),
+    // 10 mins
+    used: false
+  });
+  return state;
+};
+var consumeOAuthTransaction = async (state) => {
+  const client2 = await getMongoClient();
+  if (!client2) {
+    throw new Error("MongoDB client unavailable");
+  }
+  const db = client2.db(getMongoDbName());
+  const hashedState = crypto.createHash("sha256").update(state).digest("hex");
+  const result = await db.collection("oauth_transactions").findOneAndUpdate(
+    { stateHash: hashedState, used: false, expires: { $gt: /* @__PURE__ */ new Date() } },
+    { $set: { used: true } },
+    { returnDocument: "after" }
+  );
+  return result?.uid || null;
+};
+var encryptToken = (token) => {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
+  let encrypted = cipher.update(token, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  const authTag = cipher.getAuthTag().toString("hex");
+  return `${iv.toString("hex")}:${authTag}:${encrypted}`;
+};
+var decryptToken = (encryptedToken) => {
+  const [iv, authTag, encrypted] = encryptedToken.split(":");
+  const decipher = crypto.createDecipheriv(ALGORITHM, ENCRYPTION_KEY, Buffer.from(iv, "hex"));
+  decipher.setAuthTag(Buffer.from(authTag, "hex"));
+  let decrypted = decipher.update(encrypted, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+};
+var getActiveDriveCredentials = async (specificUid) => {
+  if (isMockDriveActive()) {
+    return {
+      uid: specificUid || "mock-super-admin",
+      refreshToken: encryptToken("mock-refresh-token"),
+      isPrimary: true,
+      active: true
+    };
+  }
+  const client2 = await getMongoClient();
+  if (!client2) {
+    throw new DriveIntegrationError("Database unavailable for Drive credential resolution", 503);
+  }
+  const db = client2.db(getMongoDbName());
+  if (specificUid) {
+    const creds = await db.collection("integration_credentials").findOne({ uid: specificUid });
+    if (!creds || !creds.refreshToken) {
+      throw new DriveIntegrationError(`No authorized Drive credentials found for user UID '${specificUid}'`, 403);
+    }
+    return creds;
+  }
+  const credentials = await db.collection("integration_credentials").find({ active: { $ne: false } }).toArray();
+  if (credentials.length === 0) {
+    throw new DriveIntegrationError(
+      "No authorized Google Drive integration found. An authorized Super Admin must connect Google Drive in Settings/Media Center.",
+      503
+    );
+  }
+  if (credentials.length === 1) {
+    return credentials[0];
+  }
+  const primary = credentials.filter((c) => c.isPrimary === true);
+  if (primary.length === 1) {
+    return primary[0];
+  }
+  throw new DriveIntegrationError(
+    "Multiple Google Drive integrations found with ambiguous primary selection. An authorized Super Admin must re-authenticate to establish the active primary integration.",
+    503
+  );
+};
+var getDriveOAuthClient = async (uid) => {
+  const creds = await getActiveDriveCredentials(uid);
+  const oauth2Client = new google2.auth.OAuth2(
+    process.env.GOOGLE_DRIVE_CLIENT_ID,
+    process.env.GOOGLE_DRIVE_CLIENT_SECRET,
+    `${process.env.SITE_URL}/api/admin/drive/callback`
+  );
+  oauth2Client.setCredentials({ refresh_token: decryptToken(creds.refreshToken) });
+  return { oauth2Client, creds };
+};
+var getDriveClient = async (uid) => {
+  const { oauth2Client } = await getDriveOAuthClient(uid);
+  return google2.drive({ version: "v3", auth: oauth2Client });
+};
+var getShortLivedPickerToken = async (uid) => {
+  if (isMockDriveActive()) {
+    return {
+      accessToken: "mock_picker_access_token_" + Date.now(),
+      apiKey: process.env.GOOGLE_PICKER_API_KEY || "mock-picker-api-key",
+      projectNumber: process.env.GOOGLE_CLOUD_PROJECT_NUMBER || "mock-project-number",
+      folderId: DEFAULT_DRIVE_FOLDER_ID2,
+      expiresIn: 3600
+    };
+  }
+  const { oauth2Client } = await getDriveOAuthClient(uid);
+  const tokenRes = await oauth2Client.getAccessToken();
+  const token = tokenRes.token;
+  if (!token) {
+    throw new DriveIntegrationError("Failed to obtain short-lived access token from Google OAuth", 502);
+  }
+  return {
+    accessToken: token,
+    apiKey: process.env.GOOGLE_PICKER_API_KEY || "",
+    projectNumber: process.env.GOOGLE_CLOUD_PROJECT_NUMBER || "",
+    folderId: DEFAULT_DRIVE_FOLDER_ID2,
+    expiresIn: 3600
+  };
+};
+var createResumableUploadSession = async (options) => {
+  const targetFolderId = DEFAULT_DRIVE_FOLDER_ID2;
+  const sanitized = sanitizeFileName(options.fileName);
+  if (isMockDriveActive()) {
+    const mockFileId = "mock_file_" + options.mediaId;
+    mockDriveFiles.set(options.mediaId, {
+      mediaId: options.mediaId,
+      name: sanitized,
+      mimeType: options.mimeType,
+      size: options.fileSize,
+      parents: [targetFolderId],
+      properties: { mediaId: options.mediaId, category: options.category },
+      appProperties: { mediaId: options.mediaId, category: options.category, uploadedBy: options.uploadedByEmail },
+      driveFileId: mockFileId,
+      uploaded: false,
+      trashed: false,
+      content: Buffer.alloc(Math.min(options.fileSize, 64 * 1024), "A")
+    });
+    return {
+      uploadUrl: `https://mock.drive.google.com/upload/${options.mediaId}?session=sess_${Date.now()}`,
+      mediaId: options.mediaId,
+      expiresIn: 3600
+    };
+  }
+  const { oauth2Client } = await getDriveOAuthClient(options.uploadedByUid);
+  const tokenRes = await oauth2Client.getAccessToken();
+  const token = tokenRes.token;
+  if (!token) {
+    throw new DriveIntegrationError("Failed to retrieve OAuth access token for resumable upload creation", 502);
+  }
+  const metadata = {
+    name: sanitized,
+    parents: [targetFolderId],
+    properties: {
+      mediaId: options.mediaId,
+      category: options.category,
+      uploadedByUid: options.uploadedByUid
+    },
+    appProperties: {
+      mediaId: options.mediaId,
+      category: options.category,
+      uploadedByUid: options.uploadedByUid,
+      uploadedByEmail: options.uploadedByEmail
+    }
+  };
+  const response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Upload-Content-Type": options.mimeType,
+      "X-Upload-Content-Length": String(options.fileSize),
+      "Content-Type": "application/json; charset=UTF-8"
+    },
+    body: JSON.stringify(metadata)
+  });
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error("[DriveAuth] Resumable upload session error:", response.status, errText);
+    throw new DriveIntegrationError(`Failed to initiate Drive resumable upload: ${response.statusText}`, 502);
+  }
+  const uploadUrl = response.headers.get("Location") || response.headers.get("location");
+  if (!uploadUrl) {
+    throw new DriveIntegrationError("Google Drive omitted resumable session Location header", 502);
+  }
+  return {
+    uploadUrl,
+    mediaId: options.mediaId,
+    expiresIn: 3600
+  };
+};
+var verifyUploadedDriveFile = async (query) => {
+  const targetFolderId = query.expectedFolderId || DEFAULT_DRIVE_FOLDER_ID2;
+  if (isMockDriveActive()) {
+    const mock = mockDriveFiles.get(query.mediaId);
+    if (!mock) {
+      throw new DriveIntegrationError(`No uploaded Drive file found for mediaId '${query.mediaId}'`, 404);
+    }
+    if (mock.trashed) {
+      throw new DriveIntegrationError("Uploaded file is in trash and cannot be verified", 400);
+    }
+    if (!mock.parents.includes(targetFolderId)) {
+      throw new DriveIntegrationError("Uploaded file does not reside in the designated parent folder", 403);
+    }
+    mock.uploaded = true;
+    return {
+      fileId: mock.driveFileId,
+      fileName: mock.name,
+      mimeType: mock.mimeType,
+      size: mock.size,
+      driveViewUrl: `https://drive.google.com/file/d/${mock.driveFileId}/view`
+    };
+  }
+  const drive = await getDriveClient();
+  let fileData = null;
+  if (query.fileId) {
+    try {
+      const res = await drive.files.get({
+        fileId: query.fileId,
+        fields: "id, name, mimeType, size, parents, properties, appProperties, webViewLink, trashed"
+      });
+      fileData = res.data;
+    } catch (err) {
+      throw new DriveIntegrationError(`Unable to retrieve file with ID '${query.fileId}' from Google Drive: ${err.message}`, 404);
+    }
+  } else {
+    const searchRes = await drive.files.list({
+      q: `properties has { key='mediaId' and value='${query.mediaId}' } and '${targetFolderId}' in parents and trashed = false`,
+      fields: "files(id, name, mimeType, size, parents, properties, appProperties, webViewLink, trashed)",
+      pageSize: 5
+    });
+    if (searchRes.data.files && searchRes.data.files.length > 0) {
+      fileData = searchRes.data.files[0];
+    }
+  }
+  if (!fileData || !fileData.id) {
+    throw new DriveIntegrationError(`Uploaded file could not be found or verified for mediaId '${query.mediaId}'`, 404);
+  }
+  if (fileData.trashed) {
+    throw new DriveIntegrationError("Uploaded file is in trash and cannot be verified", 400);
+  }
+  if (!fileData.parents || !fileData.parents.includes(targetFolderId)) {
+    throw new DriveIntegrationError("Uploaded file does not reside in the designated parent folder", 403);
+  }
+  const boundMediaId = fileData.properties?.mediaId || fileData.appProperties?.mediaId;
+  if (boundMediaId && boundMediaId !== query.mediaId) {
+    throw new DriveIntegrationError("Uploaded file mediaId property mismatch", 403);
+  }
+  return {
+    fileId: fileData.id,
+    fileName: fileData.name || "media_file",
+    mimeType: fileData.mimeType || "application/octet-stream",
+    size: Number(fileData.size || 0),
+    driveViewUrl: fileData.webViewLink || `https://drive.google.com/file/d/${fileData.id}/view`
+  };
+};
+var deleteDriveFile = async (fileId) => {
+  if (!fileId) return false;
+  if (isMockDriveActive()) {
+    for (const [key, val] of mockDriveFiles.entries()) {
+      if (val.driveFileId === fileId) {
+        mockDriveFiles.delete(key);
+        return true;
+      }
+    }
+    return true;
+  }
+  try {
+    const drive = await getDriveClient();
+    await drive.files.delete({ fileId });
+    return true;
+  } catch (err) {
+    console.error(`[DriveAuth] Warning: Failed to delete Drive file '${fileId}':`, err.message);
+    return false;
+  }
+};
+var streamDriveFile = async (fileId, rangeHeader) => {
+  if (!fileId) {
+    throw new DriveIntegrationError("Missing Drive file ID for streaming", 400);
+  }
+  if (isMockDriveActive()) {
+    let found = null;
+    for (const val of mockDriveFiles.values()) {
+      if (val.driveFileId === fileId) {
+        found = val;
+        break;
+      }
+    }
+    if (!found) {
+      throw new DriveIntegrationError(`Drive file '${fileId}' not found in storage`, 404);
+    }
+    if (found.trashed) {
+      throw new DriveIntegrationError("Drive file has been trashed", 404);
+    }
+    const buffer = found.content || Buffer.from("MOCK MEDIA STREAM DATA FOR " + fileId);
+    const totalSize2 = buffer.length;
+    if (rangeHeader) {
+      const matches = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
+      if (matches) {
+        let start = matches[1] ? parseInt(matches[1], 10) : 0;
+        let end = matches[2] ? parseInt(matches[2], 10) : totalSize2 - 1;
+        if (matches[1] === "" && matches[2] !== "") {
+          start = totalSize2 - parseInt(matches[2], 10);
+          end = totalSize2 - 1;
+        }
+        if (isNaN(start) || isNaN(end) || start >= totalSize2 || end >= totalSize2 || start > end) {
+          const rangeErr = new DriveIntegrationError("Requested Range Not Satisfiable", 416, { totalSize: totalSize2 });
+          throw rangeErr;
+        }
+        const chunk = buffer.subarray(start, end + 1);
+        return {
+          status: 206,
+          stream: Readable.from(chunk),
+          headers: {
+            "Content-Type": found.mimeType || "application/octet-stream",
+            "Content-Length": String(chunk.length),
+            "Content-Range": `bytes ${start}-${end}/${totalSize2}`,
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=86400"
+          }
+        };
+      }
+    }
+    return {
+      status: 200,
+      stream: Readable.from(buffer),
+      headers: {
+        "Content-Type": found.mimeType || "application/octet-stream",
+        "Content-Length": String(totalSize2),
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=86400"
+      }
+    };
+  }
+  const drive = await getDriveClient();
+  const meta = await drive.files.get({
+    fileId,
+    fields: "id, name, mimeType, size, trashed"
+  });
+  if (meta.data.trashed) {
+    throw new DriveIntegrationError("Drive file has been trashed", 404);
+  }
+  const totalSize = Number(meta.data.size || 0);
+  const mimeType = meta.data.mimeType || "application/octet-stream";
+  if (rangeHeader && totalSize > 0) {
+    const matches = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
+    if (matches) {
+      let start = matches[1] ? parseInt(matches[1], 10) : 0;
+      let end = matches[2] ? parseInt(matches[2], 10) : totalSize - 1;
+      if (matches[1] === "" && matches[2] !== "") {
+        start = totalSize - parseInt(matches[2], 10);
+        end = totalSize - 1;
+      }
+      if (isNaN(start) || isNaN(end) || start >= totalSize || end >= totalSize || start > end) {
+        const rangeErr = new DriveIntegrationError("Requested Range Not Satisfiable", 416, { totalSize });
+        throw rangeErr;
+      }
+      const chunkLength = end - start + 1;
+      const driveRes2 = await drive.files.get(
+        { fileId, alt: "media" },
+        { responseType: "stream", headers: { Range: `bytes=${start}-${end}` } }
+      );
+      return {
+        status: 206,
+        stream: driveRes2.data,
+        headers: {
+          "Content-Type": mimeType,
+          "Content-Length": String(chunkLength),
+          "Content-Range": `bytes ${start}-${end}/${totalSize}`,
+          "Accept-Ranges": "bytes",
+          "Cache-Control": "public, max-age=86400"
+        }
+      };
+    }
+  }
+  const driveRes = await drive.files.get(
+    { fileId, alt: "media" },
+    { responseType: "stream" }
+  );
+  return {
+    status: 200,
+    stream: driveRes.data,
+    headers: {
+      "Content-Type": mimeType,
+      ...totalSize > 0 ? { "Content-Length": String(totalSize) } : {},
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "public, max-age=86400"
+    }
+  };
+};
+
+// src/serverApp.ts
+var getGoogleAuth2 = () => {
   if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY) {
     return null;
   }
-  return new google.auth.JWT({
+  return new google3.auth.JWT({
     email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
     key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
     scopes: ["https://googleapis.com/auth/spreadsheets"]
@@ -1756,14 +3578,14 @@ ${JSON.stringify(analyticsData, null, 2)}`;
   });
   app2.post("/api/grievances", async (req, res) => {
     const { grievance } = req.body;
-    const auth = getGoogleAuth();
+    const auth = getGoogleAuth2();
     const sheetId = process.env.GOOGLE_SHEET_ID;
     if (!auth || !sheetId) {
       console.log("Google Sheets not configured, skipping sync");
       return res.json({ success: true, message: "Grievance saved (Sheets sync skipped)" });
     }
     try {
-      const sheets = google.sheets({ version: "v4", auth });
+      const sheets = google3.sheets({ version: "v4", auth });
       const values = [
         [
           grievance?.trackingNumber || "",
@@ -1848,10 +3670,914 @@ ${JSON.stringify(analyticsData, null, 2)}`;
   app2.get("/api/public/media", async (_req, res) => {
     try {
       const section = await getHomeSectionById("media_page");
-      res.json(section || { data: {} });
+      let authoritativeItems;
+      try {
+        const { items } = await getMediaItems({
+          status: "PUBLISHED",
+          showOnHomeOnly: true,
+          limit: 12
+        });
+        authoritativeItems = items;
+      } catch (sheetErr) {
+        console.error("[API] Authoritative Sheets fetch failed for homepage media:", sheetErr);
+        return res.status(503).json({
+          error: "Service Unavailable",
+          message: "Authoritative media storage is temporarily unavailable"
+        });
+      }
+      const mergedSection = {
+        ...section || { sectionId: "media_page", name: "Media Center", enabled: true },
+        data: {
+          ...section?.data || {},
+          items: authoritativeItems.map(sanitizePublicMediaItem)
+        }
+      };
+      res.json(mergedSection);
     } catch (err) {
       console.error("[API] Error fetching public media data:", err);
       res.status(500).json({ error: "Failed to load media page content" });
+    }
+  });
+  app2.get("/api/public/media/items", async (req, res) => {
+    try {
+      const { category, type, search, limit, offset } = req.query;
+      const result = await getMediaItems({
+        category,
+        mediaType: type,
+        status: "PUBLISHED",
+        search,
+        limit: limit ? parseInt(limit, 10) : 50,
+        offset: offset ? parseInt(offset, 10) : 0,
+        includeDeleted: false
+      });
+      res.json({
+        ...result,
+        items: result.items.map(sanitizePublicMediaItem)
+      });
+    } catch (err) {
+      console.error("[API] Error fetching public media items:", err);
+      const status = err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Failed to load media items" });
+    }
+  });
+  app2.get("/api/public/media/items/:id", async (req, res) => {
+    try {
+      const item = await getMediaItemById(req.params.id);
+      if (!item || item.status !== "PUBLISHED") {
+        return res.status(404).json({ error: "Media item not found or not published" });
+      }
+      res.json({ item: sanitizePublicMediaItem(item) });
+    } catch (err) {
+      console.error("[API] Error fetching public media item:", err);
+      const status = err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Failed to load media item" });
+    }
+  });
+  app2.get("/api/public/media/stream/:opaqueId", async (req, res) => {
+    try {
+      const item = await getMediaItemById(req.params.opaqueId);
+      if (!item || item.status !== "PUBLISHED") {
+        return res.status(404).json({ error: "Media item not found or not published" });
+      }
+      if (!item.driveFileId) {
+        return res.status(404).json({ error: "Media file unavailable in storage" });
+      }
+      const streamResult = await streamDriveFile(item.driveFileId, req.headers.range);
+      for (const [key, value] of Object.entries(streamResult.headers)) {
+        res.setHeader(key, value);
+      }
+      res.status(streamResult.status);
+      streamResult.stream.pipe(res);
+    } catch (err) {
+      if (err.statusCode === 416) {
+        res.status(416);
+        if (err.details?.totalSize) {
+          res.setHeader("Content-Range", `bytes */${err.details.totalSize}`);
+        }
+        return res.end();
+      }
+      console.error("[API] Error streaming public media:", err.message);
+      const status = err.statusCode || 500;
+      res.status(status).json({
+        error: err.statusCode === 404 ? "Media file not found" : "Failed to stream media"
+      });
+    }
+  });
+  app2.get("/api/public/social/channels", async (req, res) => {
+    try {
+      const showOnHome = req.query.home === "true";
+      const channels = await getSocialChannels({
+        onlyEnabled: true,
+        showOnHomeOnly: showOnHome,
+        includeDeleted: false
+      });
+      const resultChannels = showOnHome ? channels.slice(0, 4) : channels;
+      res.json({ channels: resultChannels });
+    } catch (err) {
+      console.error("[API] Error fetching public social channels:", err);
+      const status = err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Failed to load social channels" });
+    }
+  });
+  app2.get("/api/public/social", async (req, res) => {
+    try {
+      const showOnHome = req.query.home === "true" || req.query.limit === "4";
+      const channels = await getSocialChannels({
+        onlyEnabled: true,
+        showOnHomeOnly: showOnHome,
+        includeDeleted: false
+      });
+      const resultChannels = showOnHome ? channels.slice(0, 4) : channels;
+      res.json({ channels: resultChannels });
+    } catch (err) {
+      console.error("[API] Error fetching public social hub:", err);
+      const status = err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Failed to load social hub" });
+    }
+  });
+  app2.get("/api/admin/media/items", requireMediaAccess, async (req, res) => {
+    try {
+      const user = req.user;
+      const { category, type, status, search, limit, offset, includeDeleted } = req.query;
+      if (!isSuperAdmin(user)) {
+        if (category) {
+          const hasPerm = await checkUserSegmentPermission(user, category, "read");
+          if (!hasPerm) {
+            return res.status(403).json({
+              error: "Forbidden",
+              message: `Account '${user.email}' lacks 'read' permission for media segment '${category}'.`
+            });
+          }
+        } else {
+          const grants = await getSegmentPermissions();
+          const userGrants = grants.filter(
+            (g) => g.status === "ACTIVE" && g.canRead && (user.email && g.userEmail.toLowerCase() === user.email.toLowerCase() || user.uid && g.userUid === user.uid)
+          );
+          if (userGrants.length === 0) {
+            return res.status(403).json({
+              error: "Forbidden",
+              message: `Account '${user.email}' lacks read permission for any media segment.`
+            });
+          }
+          const allowedSegments = userGrants.map((g) => g.segment);
+          const result2 = await getMediaItems({
+            category,
+            mediaType: type,
+            status,
+            search,
+            limit: 1e3,
+            includeDeleted: includeDeleted === "true"
+          });
+          const filteredItems = result2.items.filter((item) => allowedSegments.includes(item.category));
+          const offsetNum = offset ? parseInt(offset, 10) : 0;
+          const limitNum = limit ? parseInt(limit, 10) : 50;
+          return res.json({
+            items: filteredItems.slice(offsetNum, offsetNum + limitNum),
+            total: filteredItems.length
+          });
+        }
+      }
+      const result = await getMediaItems({
+        category,
+        mediaType: type,
+        status,
+        search,
+        limit: limit ? parseInt(limit, 10) : 50,
+        offset: offset ? parseInt(offset, 10) : 0,
+        includeDeleted: includeDeleted === "true"
+      });
+      res.json(result);
+    } catch (err) {
+      console.error("[API] Error fetching admin media items:", err);
+      const status = err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Failed to load media items" });
+    }
+  });
+  app2.get("/api/admin/media/items/:id", requireMediaAccess, async (req, res) => {
+    try {
+      const item = await getMediaItemById(req.params.id);
+      if (!item) {
+        return res.status(404).json({ error: "Media item not found" });
+      }
+      const user = req.user;
+      if (!isSuperAdmin(user)) {
+        const hasPerm = await checkUserSegmentPermission(user, item.category, "read");
+        if (!hasPerm) {
+          return res.status(403).json({
+            error: "Forbidden",
+            message: `Account '${user.email}' lacks 'read' permission for media segment '${item.category}'.`
+          });
+        }
+      }
+      res.json({ item });
+    } catch (err) {
+      console.error("[API] Error fetching media item:", err);
+      const status = err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Failed to load media item" });
+    }
+  });
+  app2.post(
+    "/api/admin/media/items",
+    requireMediaAccess,
+    requireSegmentAccess((req) => req.body?.category || "PHOTO_GALLERY", "create"),
+    async (req, res) => {
+      try {
+        const user = req.user;
+        const {
+          title,
+          type,
+          mediaType,
+          category,
+          description,
+          caption,
+          imageUrl,
+          img,
+          publicMediaUrl,
+          thumbnailUrl,
+          driveFileId,
+          driveFileName,
+          driveViewUrl,
+          date,
+          status,
+          sortOrder,
+          order,
+          showOnHome
+        } = req.body;
+        if (!title || typeof title !== "string" || !title.trim()) {
+          return res.status(400).json({ error: "A valid title is required" });
+        }
+        const resolvedType = mediaType || type;
+        if (!resolvedType || typeof resolvedType !== "string" || !resolvedType.trim()) {
+          return res.status(400).json({ error: "A valid media type (e.g. PHOTO, VIDEO, PRESS, REPORT) is required" });
+        }
+        const result = await createMediaItem(
+          {
+            title,
+            mediaType: resolvedType,
+            category,
+            description: description || caption,
+            publicMediaUrl: publicMediaUrl || imageUrl || img,
+            thumbnailUrl: thumbnailUrl || imageUrl || img,
+            driveFileId,
+            driveFileName,
+            driveViewUrl,
+            status,
+            sortOrder: sortOrder ?? order,
+            showOnHome: Boolean(showOnHome)
+          },
+          {
+            uid: user.uid,
+            email: user.email,
+            role: user.role,
+            name: user.displayName,
+            ipAddress: req.ip,
+            requestId: req.headers["x-request-id"] || void 0
+          }
+        );
+        if (result.warning) {
+          return res.status(207).json({
+            success: true,
+            partialSuccess: true,
+            item: result.item,
+            warning: result.warning,
+            auditLogged: result.auditLogged
+          });
+        }
+        res.status(201).json({ success: true, item: result.item, auditLogged: result.auditLogged });
+      } catch (err) {
+        console.error("[API] Error creating media item:", err);
+        const status = err.statusCode || 500;
+        res.status(status).json({ error: err.message || "Failed to create media item" });
+      }
+    }
+  );
+  app2.post(
+    "/api/admin/media/upload",
+    requireMediaAccess,
+    requireSegmentAccess((req) => req.body?.category || "PHOTO_GALLERY", "create"),
+    async (req, res) => {
+      try {
+        const user = req.user;
+        const {
+          category,
+          title,
+          description,
+          filename,
+          fileName,
+          mimeType,
+          fileSize,
+          declaredSize,
+          showOnHome,
+          sortOrder,
+          order
+        } = req.body;
+        const effectiveName = (filename || fileName || "").trim();
+        const effectiveSize = Number(fileSize || declaredSize || 0);
+        if (!title || typeof title !== "string" || !title.trim()) {
+          return res.status(400).json({ error: "Title is required" });
+        }
+        if (title.trim().length > 200) {
+          return res.status(400).json({ error: "Title cannot exceed 200 characters" });
+        }
+        const categoryUpper = String(category || "PHOTO_GALLERY").trim().toUpperCase().replace(/\s+/g, "_");
+        if (!VALID_MEDIA_SEGMENTS.includes(categoryUpper)) {
+          return res.status(400).json({
+            error: "Invalid category",
+            message: `Category must be one of: ${VALID_MEDIA_SEGMENTS.join(", ")}`
+          });
+        }
+        if (!mimeType || !(mimeType in ALLOWED_MIME_TYPES)) {
+          return res.status(400).json({
+            error: "Unsupported MIME type",
+            message: `Allowed MIME types: ${Object.keys(ALLOWED_MIME_TYPES).join(", ")}`
+          });
+        }
+        const mimeRule = ALLOWED_MIME_TYPES[mimeType];
+        if (effectiveSize <= 0) {
+          return res.status(400).json({ error: "File size must be greater than 0 bytes" });
+        }
+        if (effectiveSize > mimeRule.maxSize) {
+          return res.status(400).json({
+            error: "File size exceeds limit",
+            message: `Maximum allowed size for ${mimeType} is ${Math.round(mimeRule.maxSize / (1024 * 1024))} MB`
+          });
+        }
+        const sanitizedFileName = sanitizeFileName(effectiveName || `upload_${Date.now()}`);
+        const mediaId = `med_${Date.now()}_${crypto2.randomBytes(4).toString("hex")}`;
+        let session;
+        try {
+          session = await createResumableUploadSession({
+            mediaId,
+            fileName: sanitizedFileName,
+            mimeType,
+            fileSize: effectiveSize,
+            category: categoryUpper,
+            uploadedByUid: user.uid,
+            uploadedByEmail: user.email
+          });
+        } catch (driveErr) {
+          console.error("[API] Failed to create Drive upload session:", driveErr);
+          const status = driveErr.statusCode || 502;
+          return res.status(status).json({
+            error: "Drive Upload Initiation Failed",
+            message: driveErr.message
+          });
+        }
+        try {
+          await createMediaItem(
+            {
+              mediaId,
+              category: categoryUpper,
+              mediaType: mimeRule.type,
+              title: title.trim(),
+              description: description ? String(description).trim() : "",
+              driveFileId: "",
+              // Empty until verified at completion
+              driveFileName: sanitizedFileName,
+              driveViewUrl: "",
+              publicMediaUrl: `/api/public/media/stream/${mediaId}`,
+              thumbnailUrl: "",
+              showOnHome: Boolean(showOnHome),
+              status: "DRAFT",
+              // Uploads strictly begin in DRAFT status
+              sortOrder: sortOrder ?? order ?? 0
+            },
+            {
+              uid: user.uid,
+              email: user.email,
+              role: user.role,
+              name: user.displayName,
+              ipAddress: req.ip,
+              requestId: req.headers["x-request-id"] || void 0
+            }
+          );
+        } catch (sheetErr) {
+          console.error("[API] Failed to record draft in Google Sheets:", sheetErr);
+          return res.status(sheetErr.statusCode || 503).json({
+            error: "Service Unavailable",
+            message: "Failed to persist draft media record to Google Sheets"
+          });
+        }
+        res.setHeader("Cache-Control", "no-store");
+        res.status(201).json({
+          success: true,
+          mediaId,
+          uploadUrl: session.uploadUrl,
+          headers: {
+            "Content-Type": mimeType
+          },
+          expiresIn: session.expiresIn,
+          message: "Resumable upload session created. Upload bytes directly to uploadUrl, then call /complete."
+        });
+      } catch (err) {
+        console.error("[API] Unexpected error in /api/admin/media/upload:", err);
+        const status = err.statusCode || 500;
+        res.status(status).json({ error: err.message || "Failed to initiate media upload" });
+      }
+    }
+  );
+  app2.post("/api/admin/media/upload/:mediaId/complete", requireMediaAccess, async (req, res) => {
+    const actorContext = {
+      uid: req.user.uid,
+      email: req.user.email,
+      role: req.user.role,
+      name: req.user.displayName,
+      ipAddress: req.ip,
+      requestId: req.headers["x-request-id"] || void 0
+    };
+    try {
+      const user = req.user;
+      const existing = await getMediaItemById(req.params.mediaId);
+      if (!existing) {
+        return res.status(404).json({ error: "Media record not found" });
+      }
+      if (!isSuperAdmin(user)) {
+        const hasPerm = await checkUserSegmentPermission(user, existing.category, "create");
+        if (!hasPerm) {
+          return res.status(403).json({
+            error: "Forbidden",
+            message: `Account '${user.email}' lacks create permission for media segment '${existing.category}'.`
+          });
+        }
+        const isCreator = existing.createdByUid && existing.createdByUid === user.uid || existing.createdByEmail && existing.createdByEmail.toLowerCase() === user.email.toLowerCase();
+        if (!isCreator && user.role !== "SUPER_ADMIN" && user.role !== "ADMIN") {
+          return res.status(403).json({
+            error: "Forbidden",
+            message: "Only the initiating creator or an administrator can finalize this upload."
+          });
+        }
+      }
+      if (existing.status === "DELETED") {
+        return res.status(400).json({ error: "Cannot finalize a deleted upload record" });
+      }
+      if (existing.driveFileId && existing.status !== "DRAFT") {
+        return res.json({
+          success: true,
+          item: existing,
+          message: "Upload has already been finalized."
+        });
+      }
+      let verified;
+      try {
+        verified = await verifyUploadedDriveFile({
+          mediaId: existing.mediaId,
+          fileId: req.body?.driveFileId,
+          expectedFolderId: DEFAULT_DRIVE_FOLDER_ID2
+        });
+      } catch (driveErr) {
+        console.error("[API] Drive file verification failed during upload finalization:", driveErr);
+        return res.status(driveErr.statusCode || 400).json({
+          error: "Drive Verification Failed",
+          message: driveErr.message
+        });
+      }
+      try {
+        const result = await updateMediaItem(
+          existing.mediaId,
+          {
+            driveFileId: verified.fileId,
+            driveFileName: verified.fileName,
+            driveViewUrl: verified.driveViewUrl,
+            publicMediaUrl: `/api/public/media/stream/${existing.mediaId}`,
+            status: "DRAFT"
+            // Stays in DRAFT until explicitly published by user
+          },
+          actorContext
+        );
+        res.json({
+          success: true,
+          item: result.item,
+          auditLogged: result.auditLogged,
+          warning: result.warning,
+          message: "Drive upload verified and finalized. Media record is saved in DRAFT status."
+        });
+      } catch (persistErr) {
+        console.error("[API] Sheets persistence failed during finalization. Executing safe rollback:", persistErr);
+        const driveDeleted = await deleteDriveFile(verified.fileId);
+        let sheetDeleted = false;
+        try {
+          await deleteMediaItem(existing.mediaId, actorContext);
+          sheetDeleted = true;
+        } catch {
+        }
+        return res.status(503).json({
+          error: "Finalization Persistence Failed",
+          message: "Failed to persist verified media metadata to Google Sheets. Safe rollback executed.",
+          cleanup: {
+            driveFileDeleted: driveDeleted,
+            draftSoftDeleted: sheetDeleted
+          }
+        });
+      }
+    } catch (err) {
+      console.error("[API] Unexpected error in /api/admin/media/upload/:mediaId/complete:", err);
+      const status = err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Failed to finalize upload" });
+    }
+  });
+  app2.post("/api/admin/media/upload/:mediaId/cancel", requireMediaAccess, async (req, res) => {
+    const actorContext = {
+      uid: req.user.uid,
+      email: req.user.email,
+      role: req.user.role,
+      name: req.user.displayName,
+      ipAddress: req.ip,
+      requestId: req.headers["x-request-id"] || void 0
+    };
+    try {
+      const user = req.user;
+      const existing = await getMediaItemById(req.params.mediaId);
+      if (!existing) {
+        return res.status(404).json({ error: "Media record not found" });
+      }
+      if (!isSuperAdmin(user)) {
+        const hasPerm = await checkUserSegmentPermission(user, existing.category, "edit");
+        if (!hasPerm) {
+          return res.status(403).json({
+            error: "Forbidden",
+            message: `Account '${user.email}' lacks edit permission for media segment '${existing.category}'.`
+          });
+        }
+      }
+      if (existing.driveFileId) {
+        await deleteDriveFile(existing.driveFileId);
+      }
+      await deleteMediaItem(existing.mediaId, actorContext);
+      res.json({
+        success: true,
+        message: "Upload cancelled, associated Drive file removed, and draft soft-deleted."
+      });
+    } catch (err) {
+      console.error("[API] Error cancelling upload:", err);
+      const status = err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Failed to cancel upload" });
+    }
+  });
+  app2.put("/api/admin/media/items/:id", requireMediaAccess, async (req, res) => {
+    try {
+      const user = req.user;
+      const existing = await getMediaItemById(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Media item not found" });
+      }
+      if (!isSuperAdmin(user)) {
+        const hasEditPerm = await checkUserSegmentPermission(user, existing.category, "edit");
+        if (!hasEditPerm) {
+          return res.status(403).json({
+            error: "Forbidden",
+            message: `Account '${user.email}' lacks 'edit' permission for media segment '${existing.category}'.`
+          });
+        }
+        if (req.body?.category) {
+          const targetCat = req.body.category.toUpperCase().replace(/\s+/g, "_");
+          if (targetCat !== existing.category) {
+            const hasTargetPerm = await checkUserSegmentPermission(user, targetCat, "edit");
+            if (!hasTargetPerm) {
+              return res.status(403).json({
+                error: "Forbidden",
+                message: `Account '${user.email}' lacks 'edit' permission for destination media segment '${targetCat}'.`
+              });
+            }
+          }
+        }
+      }
+      const result = await updateMediaItem(
+        req.params.id,
+        req.body,
+        {
+          uid: user.uid,
+          email: user.email,
+          role: user.role,
+          ipAddress: req.ip,
+          requestId: req.headers["x-request-id"] || void 0
+        }
+      );
+      if (result.warning) {
+        return res.status(207).json({
+          success: true,
+          partialSuccess: true,
+          item: result.item,
+          warning: result.warning,
+          auditLogged: result.auditLogged
+        });
+      }
+      res.json({ success: true, item: result.item, auditLogged: result.auditLogged });
+    } catch (err) {
+      console.error("[API] Error updating media item:", err);
+      const status = err.message?.includes("not found") ? 404 : err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Failed to update media item" });
+    }
+  });
+  app2.delete("/api/admin/media/items/:id", requireMediaAccess, async (req, res) => {
+    try {
+      const user = req.user;
+      const existing = await getMediaItemById(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Media item not found" });
+      }
+      if (!isSuperAdmin(user)) {
+        const hasDeletePerm = await checkUserSegmentPermission(user, existing.category, "delete");
+        if (!hasDeletePerm) {
+          return res.status(403).json({
+            error: "Forbidden",
+            message: `Account '${user.email}' lacks 'delete' permission for media segment '${existing.category}'.`
+          });
+        }
+      }
+      const result = await deleteMediaItem(
+        req.params.id,
+        {
+          uid: user.uid,
+          email: user.email,
+          role: user.role,
+          ipAddress: req.ip,
+          requestId: req.headers["x-request-id"] || void 0
+        }
+      );
+      res.json({
+        success: true,
+        message: "Media item soft-deleted successfully (row preserved in MediaItems)",
+        auditLogged: result.auditLogged,
+        warning: result.warning
+      });
+    } catch (err) {
+      console.error("[API] Error deleting media item:", err);
+      const status = err.message?.includes("not found") ? 404 : err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Failed to delete media item" });
+    }
+  });
+  app2.get(
+    "/api/admin/social/channels",
+    requireMediaAccess,
+    requireSegmentAccess("SOCIAL_HUB", "read"),
+    async (req, res) => {
+      try {
+        const includeDeleted = req.query.includeDeleted === "true";
+        const channels = await getSocialChannels({ includeDeleted });
+        res.json({ channels });
+      } catch (err) {
+        console.error("[API] Error fetching admin social channels:", err);
+        const status = err.statusCode || 500;
+        res.status(status).json({ error: err.message || "Failed to load social channels" });
+      }
+    }
+  );
+  app2.get(
+    "/api/admin/social/channels/:id",
+    requireMediaAccess,
+    requireSegmentAccess("SOCIAL_HUB", "read"),
+    async (req, res) => {
+      try {
+        const channel = await getSocialChannelById(req.params.id);
+        if (!channel) {
+          return res.status(404).json({ error: "Social channel not found" });
+        }
+        res.json({ channel });
+      } catch (err) {
+        console.error("[API] Error fetching social channel:", err);
+        const status = err.statusCode || 500;
+        res.status(status).json({ error: err.message || "Failed to load social channel" });
+      }
+    }
+  );
+  app2.post(
+    "/api/admin/social/channels",
+    requireMediaAccess,
+    requireSegmentAccess("SOCIAL_HUB", "create"),
+    async (req, res) => {
+      try {
+        const user = req.user;
+        const { name, displayName, platform, url, enabled, showOnHome, homepagePosition, sortOrder, order } = req.body;
+        const finalName = displayName || name;
+        if (!finalName || typeof finalName !== "string" || !finalName.trim()) {
+          return res.status(400).json({ error: "Channel display name is required" });
+        }
+        const result = await createSocialChannel(
+          {
+            displayName: finalName,
+            platform: platform || "OTHER",
+            url: url || "",
+            enabled: enabled !== false,
+            showOnHome: Boolean(showOnHome),
+            homepagePosition: homepagePosition || 0,
+            sortOrder: sortOrder ?? order ?? 0
+          },
+          {
+            uid: user.uid,
+            email: user.email,
+            role: user.role,
+            ipAddress: req.ip,
+            requestId: req.headers["x-request-id"] || void 0
+          }
+        );
+        res.status(201).json({
+          success: true,
+          channel: result.channel,
+          auditLogged: result.auditLogged,
+          warning: result.warning
+        });
+      } catch (err) {
+        console.error("[API] Error creating social channel:", err);
+        const status = err.statusCode || 500;
+        res.status(status).json({ error: err.message || "Failed to create social channel" });
+      }
+    }
+  );
+  app2.put(
+    "/api/admin/social/channels/:id",
+    requireMediaAccess,
+    requireSegmentAccess("SOCIAL_HUB", "edit"),
+    async (req, res) => {
+      try {
+        const user = req.user;
+        const result = await updateSocialChannel(
+          req.params.id,
+          req.body,
+          {
+            uid: user.uid,
+            email: user.email,
+            role: user.role,
+            ipAddress: req.ip,
+            requestId: req.headers["x-request-id"] || void 0
+          }
+        );
+        res.json({
+          success: true,
+          channel: result.channel,
+          auditLogged: result.auditLogged,
+          warning: result.warning
+        });
+      } catch (err) {
+        console.error("[API] Error updating social channel:", err);
+        const status = err.message?.includes("not found") ? 404 : err.statusCode || 500;
+        res.status(status).json({ error: err.message || "Failed to update social channel" });
+      }
+    }
+  );
+  app2.delete(
+    "/api/admin/social/channels/:id",
+    requireMediaAccess,
+    requireSegmentAccess("SOCIAL_HUB", "delete"),
+    async (req, res) => {
+      try {
+        const user = req.user;
+        const result = await deleteSocialChannel(
+          req.params.id,
+          {
+            uid: user.uid,
+            email: user.email,
+            role: user.role,
+            ipAddress: req.ip,
+            requestId: req.headers["x-request-id"] || void 0
+          }
+        );
+        res.json({
+          success: true,
+          message: "Social channel soft-deleted successfully (row preserved in SocialChannels)",
+          auditLogged: result.auditLogged,
+          warning: result.warning
+        });
+      } catch (err) {
+        console.error("[API] Error deleting social channel:", err);
+        const status = err.message?.includes("not found") ? 404 : err.statusCode || 500;
+        res.status(status).json({ error: err.message || "Failed to delete social channel" });
+      }
+    }
+  );
+  app2.get("/api/admin/media/permissions", requireMediaAccess, async (_req, res) => {
+    try {
+      const grants = await getSegmentPermissions();
+      res.json({
+        matrix: getMediaPermissions(),
+        grants: grants.filter((g) => g.status === "ACTIVE")
+      });
+    } catch (err) {
+      console.error("[API] Error fetching permissions:", err);
+      res.json({ matrix: getMediaPermissions(), grants: [] });
+    }
+  });
+  app2.post("/api/admin/media/permissions/grant", requireSuperAdmin, async (req, res) => {
+    try {
+      const user = req.user;
+      const { userUid, userEmail, segment, canRead, canCreate, canEdit, canDelete } = req.body;
+      if (!userEmail || !segment) {
+        return res.status(400).json({ error: "userEmail and segment are required" });
+      }
+      const result = await grantSegmentPermission(
+        { userUid: userUid || "", userEmail, segment, canRead, canCreate, canEdit, canDelete },
+        { uid: user.uid, email: user.email, role: user.role, ipAddress: req.ip }
+      );
+      res.status(201).json(result);
+    } catch (err) {
+      console.error("[API] Error granting permission:", err);
+      const status = err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Failed to grant segment permission" });
+    }
+  });
+  app2.delete("/api/admin/media/permissions/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const user = req.user;
+      const result = await revokeSegmentPermission(req.params.id, {
+        uid: user.uid,
+        email: user.email,
+        role: user.role,
+        ipAddress: req.ip
+      });
+      res.json({ success: true, message: "Permission grant revoked (status set to REVOKED in MediaPermissions)" });
+    } catch (err) {
+      console.error("[API] Error revoking permission:", err);
+      const status = err.message?.includes("not found") ? 404 : err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Failed to revoke permission" });
+    }
+  });
+  app2.get("/api/admin/media/activity", requireMediaAccess, async (req, res) => {
+    try {
+      const user = req.user;
+      const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
+      const segment = req.query.segment;
+      if (!isSuperAdmin(user)) {
+        if (segment) {
+          const hasPerm = await checkUserSegmentPermission(user, segment, "read");
+          if (!hasPerm) {
+            return res.status(403).json({
+              error: "Forbidden",
+              message: `Account '${user.email}' lacks 'read' permission for media segment '${segment}'.`
+            });
+          }
+        } else {
+          const grants = await getSegmentPermissions();
+          const userGrants = grants.filter(
+            (g) => g.status === "ACTIVE" && g.canRead && (user.email && g.userEmail.toLowerCase() === user.email.toLowerCase() || user.uid && g.userUid === user.uid)
+          );
+          if (userGrants.length === 0) {
+            return res.status(403).json({
+              error: "Forbidden",
+              message: `Account '${user.email}' lacks read permission for any media segment.`
+            });
+          }
+          const allowedSegments = userGrants.map((g) => g.segment);
+          const logs2 = await getMediaActivityLogs({
+            limit: 200,
+            actorRole: user.role,
+            actorUid: user.uid
+          });
+          const filteredLogs = logs2.filter((l) => !l.segment || allowedSegments.includes(l.segment));
+          return res.json({ logs: filteredLogs.slice(0, limit) });
+        }
+      }
+      const logs = await getMediaActivityLogs({
+        limit,
+        segment,
+        actorRole: user.role,
+        actorUid: user.uid
+      });
+      res.json({ logs });
+    } catch (err) {
+      console.error("[API] Error fetching media activity logs:", err);
+      const status = err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Failed to load media activity logs" });
+    }
+  });
+  app2.get("/api/admin/media/sheets/status", requireMediaAccess, async (_req, res) => {
+    try {
+      const configured = isSheetsConfigured();
+      if (!configured) {
+        return res.json({
+          configured: false,
+          message: "Google Sheets integration is not configured. Missing GOOGLE_SHEET_ID or service account key."
+        });
+      }
+      const status = await validateSpreadsheet();
+      res.json({
+        configured: true,
+        ...status
+      });
+    } catch (err) {
+      res.json({
+        configured: true,
+        valid: false,
+        error: err.message,
+        details: err.details
+      });
+    }
+  });
+  app2.post("/api/admin/media/sync", requireMediaAccess, async (_req, res) => {
+    try {
+      invalidateAllMediaCaches();
+      const configured = isSheetsConfigured();
+      let health = { configured };
+      if (configured) {
+        health = await validateSpreadsheet();
+      }
+      res.json({
+        success: true,
+        message: "Media in-memory caches purged. Google Sheets authoritative state verified.",
+        health
+      });
+    } catch (err) {
+      console.error("[API] Error in media sync/health check:", err);
+      const status = err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Spreadsheet validation failed" });
     }
   });
   app2.get("/api/admin/home/sections", requireAuth, async (req, res) => {
@@ -2175,6 +4901,114 @@ ${JSON.stringify(analyticsData, null, 2)}`;
     } catch (err) {
       console.error("[API] Error updating submission:", err);
       res.status(500).json({ error: "Failed to update submission" });
+    }
+  });
+  app2.get("/api/public/config", (_req, res) => {
+    res.json({
+      pickerApiKey: process.env.GOOGLE_PICKER_API_KEY,
+      projectNumber: process.env.GOOGLE_CLOUD_PROJECT_NUMBER
+    });
+  });
+  app2.get("/api/admin/drive/picker-token", requireSuperAdmin, async (req, res) => {
+    try {
+      const tokenData = await getShortLivedPickerToken(req.user.uid);
+      res.setHeader("Cache-Control", "no-store");
+      res.json(tokenData);
+    } catch (err) {
+      console.error("[API] Error generating picker token:", err.message);
+      const status = err.statusCode || 500;
+      res.status(status).json({
+        error: "Picker Token Generation Failed",
+        message: err.message
+      });
+    }
+  });
+  app2.get("/api/admin/drive/auth", requireSuperAdmin, async (req, res) => {
+    const state = crypto2.randomBytes(32).toString("hex");
+    const secureState = await createOAuthTransaction(req.user.uid, state);
+    res.cookie("oauth_state", secureState, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      maxAge: 6e5,
+      path: "/api/admin/drive/callback"
+    });
+    const oauth2Client = new google3.auth.OAuth2(
+      process.env.GOOGLE_DRIVE_CLIENT_ID,
+      process.env.GOOGLE_DRIVE_CLIENT_SECRET,
+      `${process.env.SITE_URL}/api/admin/drive/callback`
+    );
+    const authUrl = oauth2Client.generateAuthUrl({
+      access_type: "offline",
+      scope: ["https://www.googleapis.com/auth/drive.file"],
+      state: secureState
+    });
+    res.json({ authUrl });
+  });
+  app2.get("/api/admin/drive/callback", async (req, res) => {
+    const { code, state, error } = req.query;
+    const cookieState = req.cookies.oauth_state;
+    if (error) {
+      res.clearCookie("oauth_state", { path: "/api/admin/drive/callback" });
+      return res.status(400).json({ error });
+    }
+    if (!state || state !== cookieState) {
+      return res.status(403).json({ error: "Invalid state" });
+    }
+    const uid = await consumeOAuthTransaction(state);
+    res.clearCookie("oauth_state", { path: "/api/admin/drive/callback" });
+    if (!uid) return res.status(403).json({ error: "Expired or invalid transaction" });
+    try {
+      const user = await getUserByUid(uid);
+      if (!user || user.role !== "SUPER_ADMIN") {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+      const oauth2Client = new google3.auth.OAuth2(
+        process.env.GOOGLE_DRIVE_CLIENT_ID,
+        process.env.GOOGLE_DRIVE_CLIENT_SECRET,
+        `${process.env.SITE_URL}/api/admin/drive/callback`
+      );
+      const { tokens } = await oauth2Client.getToken(code);
+      const client2 = await getMongoClient();
+      if (!client2) {
+        throw new Error("Database unavailable for credential persistence");
+      }
+      const db = client2.db(getMongoDbName());
+      await db.collection("integration_credentials").updateMany({}, { $set: { isPrimary: false } });
+      if (tokens.refresh_token) {
+        await db.collection("integration_credentials").updateOne(
+          { uid },
+          {
+            $set: {
+              refreshToken: encryptToken(tokens.refresh_token),
+              updatedAt: /* @__PURE__ */ new Date(),
+              isPrimary: true,
+              active: true,
+              email: user.email || ""
+            }
+          },
+          { upsert: true }
+        );
+      } else {
+        const existing = await db.collection("integration_credentials").findOne({ uid });
+        if (!existing?.refreshToken) {
+          throw new Error("No refresh token received and no existing credentials found");
+        }
+        await db.collection("integration_credentials").updateOne(
+          { uid },
+          {
+            $set: {
+              updatedAt: /* @__PURE__ */ new Date(),
+              isPrimary: true,
+              active: true,
+              email: user.email || ""
+            }
+          }
+        );
+      }
+      res.redirect("/admin/media");
+    } catch (err) {
+      res.status(500).json({ error: "Failed to finalize connection" });
     }
   });
   app2.all("/api/*", (req, res) => {

@@ -3,166 +3,199 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { Image as ImageIcon, PlayCircle, ExternalLink } from "lucide-react";
+import { Image as ImageIcon, PlayCircle, ExternalLink, Activity } from "lucide-react";
 import { Link } from "react-router-dom";
-import { MediaCenterSectionData, SocialMediaHubSectionData } from "@/src/types/homeCms";
 import HomeIcon from "./HomeIcon";
 
-export function MediaCenterRevamp({
-  content,
-  data: propData
-}: {
-  content?: any;
-  data?: MediaCenterSectionData;
-}) {
-  const mediaData: MediaCenterSectionData =
-    propData || (content?.items ? content : content?.data) || {};
+export function MediaCenterRevamp({ data, content }: { data?: any; content?: any }) {
+  const [mediaData, setMediaData] = useState<any>(data || content || null);
+  const [loading, setLoading] = useState(!mediaData);
+  const [activeTab, setActiveTab] = useState("PHOTO_GALLERY");
 
-  const title = mediaData.title || "Media Center";
-  const tabs =
-    mediaData.tabs && mediaData.tabs.length > 0
-      ? mediaData.tabs
-      : ["Photo Gallery", "Video Gallery", "Press Releases", "News Coverage", "Interviews"];
-
-  const [active, setActive] = useState(mediaData.activeTabDefault || tabs[0] || "Photo Gallery");
-
-  const defaultItems = [
-    { id: "m1", title: "Development Review Meeting", category: "Photo Gallery", imageUrl: "https://picsum.photos/seed/med1/600/400" },
-    { id: "m2", title: "Constituency Village Visit", category: "Photo Gallery", imageUrl: "https://picsum.photos/seed/med2/600/400" },
-    { id: "m3", title: "Youth Career Guidance Camp", category: "Photo Gallery", imageUrl: "https://picsum.photos/seed/med3/600/400" },
-    { id: "m4", title: "Water Scheme Inauguration", category: "Photo Gallery", imageUrl: "https://picsum.photos/seed/med4/600/400" }
+  const TABS = [
+    { label: "Photo Gallery", key: "PHOTO_GALLERY" },
+    { label: "Video Gallery", key: "VIDEO_GALLERY" },
+    { label: "Press Releases", key: "PRESS_RELEASES" },
+    { label: "News Coverage", key: "NEWS_COVERAGE" },
+    { label: "Interviews", key: "INTERVIEWS" }
   ];
 
-  const allItems = mediaData.items && mediaData.items.length > 0 ? mediaData.items : defaultItems;
+  useEffect(() => {
+    if (!data && !content) {
+      fetch("/api/public/media")
+        .then(res => res.json())
+        .then(json => {
+          setMediaData(json.data || json);
+          setLoading(false);
+        })
+        .catch(err => {
+          console.error("Error fetching homepage media:", err);
+          setLoading(false);
+        });
+    }
+  }, [data, content]);
 
-  // Filter items by category if matching active tab, otherwise show all items
-  const filteredItems = allItems.filter(
-    (item) => !item.category || item.category === active || active === "Photo Gallery"
-  );
-  const displayItems = filteredItems.length > 0 ? filteredItems : allItems;
-
-  const ctaText = mediaData.ctaText || "View All Media";
-  const ctaLink = mediaData.ctaLink || "/media-center";
+  const items = mediaData?.items || [];
+  const homeItems = items.filter((item: any) => item.showOnHome === true && (item.status === "PUBLISHED" || !item.status));
+  const filteredItems = homeItems.filter((item: any) => !item.category || item.category.toUpperCase() === activeTab);
+  const displayItems = filteredItems.length > 0 ? filteredItems : homeItems.slice(0, 4);
 
   return (
     <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl overflow-hidden">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-12 gap-6">
         <h2 className="text-xl font-black uppercase tracking-tighter text-blue-900 flex items-center gap-3">
-          <ImageIcon size={24} className="text-blue-600" /> {title}
+          <ImageIcon size={24} className="text-blue-600" /> Media Center
         </h2>
         <div className="flex flex-wrap gap-2 p-1 bg-slate-50 rounded-xl overflow-x-auto no-scrollbar">
-          {tabs.map((t) => (
+          {TABS.map((t) => (
             <button
-              key={t}
-              onClick={() => setActive(t)}
-              className={`px-6 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
-                active === t
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              className={`px-5 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
+                activeTab === t.key
                   ? "bg-blue-800 text-white shadow-xl"
                   : "text-slate-400 hover:text-slate-600"
               }`}
             >
-              {t}
+              {t.label}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {displayItems.slice(0, 4).map((item, i) => (
-          <motion.div
-            key={item.id || i}
-            initial={{ opacity: 0, scale: 0.95 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ delay: i * 0.1 }}
-            className="group cursor-pointer"
-          >
-            <div className="aspect-[16/10] bg-slate-100 rounded-3xl overflow-hidden relative mb-4">
-              <img
-                src={item.imageUrl}
-                alt={item.title}
-                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 to-transparent flex items-end p-6 opacity-0 group-hover:opacity-100 transition-opacity">
-                <p className="text-[10px] font-black text-white uppercase tracking-widest">
-                  {item.title} &rarr;
-                </p>
-              </div>
-            </div>
-          </motion.div>
-        ))}
-      </div>
+      {loading ? (
+        <div className="py-16 flex justify-center items-center">
+          <Activity className="animate-spin text-blue-600" size={32} />
+        </div>
+      ) : displayItems.length === 0 ? (
+        <div className="text-center py-16 text-slate-400 font-bold uppercase text-xs tracking-widest">
+          No featured media items for home.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {displayItems.slice(0, 4).map((item: any, i: number) => {
+            const streamUrl = item.publicMediaUrl || `/api/public/media/stream/${item.mediaId || item.id}`;
+            return (
+              <motion.div
+                key={item.mediaId || item.id || i}
+                initial={{ opacity: 0, scale: 0.95 }}
+                whileInView={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.1 }}
+                className="group cursor-pointer"
+              >
+                <a href={streamUrl} target="_blank" rel="noopener noreferrer" className="block">
+                  <div className="aspect-[16/10] bg-slate-100 rounded-3xl overflow-hidden relative mb-4 border border-slate-100">
+                    <img
+                      src={item.thumbnailUrl || item.img || "https://picsum.photos/seed/med1/600/400"}
+                      alt={item.title}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900/70 to-transparent flex items-end p-6">
+                      <p className="text-[10px] font-black text-white uppercase tracking-widest line-clamp-2">
+                        {item.title} &rarr;
+                      </p>
+                    </div>
+                  </div>
+                </a>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="mt-12 flex justify-center">
         <Link
-          to={ctaLink}
-          className="px-12 py-4 bg-white border-2 border-blue-100 text-blue-800 text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-blue-50 transition-all active:scale-95 inline-block"
+          to="/media-center"
+          className="px-12 py-4 bg-white border-2 border-blue-100 text-blue-800 text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-blue-50 transition-all active:scale-95 inline-block shadow-sm"
         >
-          {ctaText}
+          View All Media Archive
         </Link>
       </div>
     </div>
   );
 }
 
-export function SocialMediaHub({
-  content,
-  data: propData
-}: {
-  content?: any;
-  data?: SocialMediaHubSectionData;
-}) {
-  const hubData: SocialMediaHubSectionData =
-    propData || (content?.platforms ? content : content?.data) || {};
+export function SocialMediaHub({ data, content }: { data?: any; content?: any }) {
+  const [channels, setChannels] = useState<any[]>(data?.platforms || content?.platforms || []);
+  const [loading, setLoading] = useState(channels.length === 0);
 
-  const title = hubData.title || "Social Media Hub";
+  useEffect(() => {
+    if (!data && !content) {
+      fetch("/api/public/social/channels")
+        .then(res => res.json())
+        .then(json => {
+          setChannels(json.channels || json.data || []);
+          setLoading(false);
+        })
+        .catch(err => {
+          console.error("Error fetching homepage social channels:", err);
+          setLoading(false);
+        });
+    }
+  }, [data, content]);
+
+  const homeChannels = channels
+    .filter((ch: any) => ch.showOnHome !== false && ch.enabled !== false && ch.status !== "DELETED")
+    .sort((a, b) => (a.homepagePosition || 0) - (b.homepagePosition || 0))
+    .slice(0, 4);
+
   const defaultPlatforms = [
-    { name: "YouTube", handle: "@chintadaravikumar", url: "https://youtube.com/@chintadaravikumar", followers: "250K+", color: "text-red-600" },
-    { name: "Facebook", handle: "/chintadaravikumar", url: "https://facebook.com/chintadaravikumar", followers: "500K+", color: "text-blue-600" },
-    { name: "Instagram", handle: "@chintadaravikumar", url: "https://instagram.com/chintadaravikumar", followers: "320K+", color: "text-pink-600" },
-    { name: "Twitter / X", handle: "@chintadaravi", url: "https://twitter.com/chintadaravi", followers: "180K+", color: "text-sky-500" }
+    { displayName: "YouTube", url: "https://youtube.com", platform: "YOUTUBE" },
+    { displayName: "Facebook", url: "https://facebook.com", platform: "FACEBOOK" },
+    { displayName: "Instagram", url: "https://instagram.com", platform: "INSTAGRAM" },
+    { displayName: "Twitter / X", url: "https://twitter.com", platform: "TWITTER" }
   ];
 
-  const platforms =
-    hubData.platforms && hubData.platforms.length > 0 ? hubData.platforms : defaultPlatforms;
+  const displayPlatforms = homeChannels.length > 0 ? homeChannels : defaultPlatforms;
 
   return (
     <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl">
-      <h2 className="text-xl font-black uppercase tracking-tighter text-blue-900 mb-12 flex items-center gap-3">
-        <PlayCircle size={24} className="text-blue-600" /> {title}
-      </h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-        {platforms.map((s, i) => (
-          <div key={i} className="space-y-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <HomeIcon name={s.name} size={18} />
-                <span className={`text-[11px] font-black uppercase tracking-widest ${s.color}`}>
-                  {s.name}
-                </span>
-              </div>
-              <span className="text-[10px] font-bold text-slate-400">{s.followers}</span>
-            </div>
-            <p className="text-[10px] text-slate-500 font-medium truncate">{s.handle}</p>
-            <div className="aspect-video bg-slate-100 rounded-2xl overflow-hidden relative border border-slate-100">
-              <img
-                src={`https://picsum.photos/seed/soc${i}/400/225`}
-                className="w-full h-full object-cover"
-                alt={s.name}
-              />
-            </div>
-            <a
-              href={s.url}
-              target="_blank"
-              rel="noreferrer"
-              className="w-full py-3 bg-slate-50 text-[9px] font-black uppercase tracking-widest text-slate-500 rounded-xl hover:bg-blue-800 hover:text-white transition-all flex items-center justify-center gap-2 group"
-            >
-              Follow <ExternalLink size={12} className="group-hover:scale-125 transition-transform" />
-            </a>
-          </div>
-        ))}
+      <div className="flex items-center justify-between mb-12">
+        <h2 className="text-xl font-black uppercase tracking-tighter text-blue-900 flex items-center gap-3">
+          <PlayCircle size={24} className="text-blue-600" /> Social Media Hub
+        </h2>
+        <Link to="/social-hub" className="text-xs font-black uppercase tracking-widest text-blue-600 hover:underline">
+          View All Networks &rarr;
+        </Link>
       </div>
+
+      {loading ? (
+        <div className="py-16 flex justify-center items-center">
+          <Activity className="animate-spin text-blue-600" size={32} />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+          {displayPlatforms.map((s: any, i: number) => (
+            <div key={s.channelId || i} className="space-y-4 bg-slate-50 p-6 rounded-3xl border border-slate-100 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <HomeIcon name={s.displayName || s.name} size={18} />
+                    <span className="text-[11px] font-black uppercase tracking-widest text-slate-900">
+                      {s.displayName || s.name}
+                    </span>
+                  </div>
+                  <span className="text-[9px] font-bold text-blue-600 uppercase tracking-widest px-2 py-0.5 bg-blue-50 rounded">
+                    {s.platform || "Official"}
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 font-medium truncate mb-6">{s.url}</p>
+              </div>
+              <a
+                href={s.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-900 flex items-center justify-center gap-2 hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+              >
+                <span>Connect</span>
+                <ExternalLink size={12} />
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

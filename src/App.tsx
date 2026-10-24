@@ -9,7 +9,7 @@ import { UserStatus } from "./types";
 import { SiteSettingsProvider } from "./context/SiteSettingsContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { useUrlSanitizer } from "./lib/useUrlSanitizer";
-import { RouteTransitionLoader } from "./components/layout/RouteTransitionLoader";
+import BrandedLoading from "./components/BrandedLoading";
 
 // Public Pages
 import Home from "./pages/Home";
@@ -20,6 +20,7 @@ import Volunteer from "./pages/Volunteer";
 import Development from "./pages/Development";
 import StudentHub from "./pages/StudentHub";
 import MediaCenter from "./pages/MediaCenter";
+import SocialHub from "./pages/SocialHub";
 import Vision from "./pages/Vision";
 import Activities from "./pages/Activities";
 import CadreCorner from "./pages/CadreCorner";
@@ -36,6 +37,7 @@ import GrievanceManager from "./pages/GrievanceManager";
 import AnalyticsDashboard from "./pages/AnalyticsDashboard";
 import UserManagement from "./pages/UserManagement";
 import AdminMediaCenter from "./pages/AdminMediaCenter";
+import AdminSocialHub from "./pages/AdminSocialHub";
 import SubmissionsManager from "./pages/SubmissionsManager";
 
 function AppContent({ children }: { children: React.ReactNode }) {
@@ -50,7 +52,11 @@ function AppContent({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      {loading && <RouteTransitionLoader />}
+      {loading && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-50">
+          <BrandedLoading minHeight="py-0" />
+        </div>
+      )}
       <div className={loading ? "hidden" : "block"}>{children}</div>
     </>
   );
@@ -92,6 +98,7 @@ function AppRoutes() {
           <Route path="/public-voice" element={<PublicVoice />} />
           <Route path="/cadre-corner" element={<CadreCorner />} />
           <Route path="/media-center" element={<MediaCenter />} />
+          <Route path="/social-hub" element={<SocialHub />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/volunteer" element={<Volunteer />} />
           <Route path="/students" element={<StudentHub />} />
@@ -110,6 +117,7 @@ function AppRoutes() {
               <Route index element={<AdminDashboard user={user} />} />
               <Route path="cms" element={<CMSManager />} />
               <Route path="media" element={<AdminMediaCenter />} />
+              <Route path="social" element={<AdminSocialHub />} />
               <Route path="submissions" element={<SubmissionsManager />} />
               <Route path="articles" element={<ArticleManager />} />
               <Route path="volunteers" element={<VolunteerManager />} />

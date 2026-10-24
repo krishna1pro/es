@@ -5,16 +5,18 @@
 
 import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { Image as ImageIcon, PlayCircle, ExternalLink, Activity } from "lucide-react";
+import { Image as ImageIcon, PlayCircle, ExternalLink, Activity, AlertCircle, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 import HomeIcon from "./HomeIcon";
 
 export function MediaCenterRevamp({ data, content }: { data?: any; content?: any }) {
-  const [mediaData, setMediaData] = useState<any>(data || content || null);
-  const [loading, setLoading] = useState(!mediaData);
-  const [activeTab, setActiveTab] = useState("PHOTO_GALLERY");
+  const [mediaData, setMediaData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("ALL");
 
   const TABS = [
+    { label: "All Featured", key: "ALL" },
     { label: "Photo Gallery", key: "PHOTO_GALLERY" },
     { label: "Video Gallery", key: "VIDEO_GALLERY" },
     { label: "Press Releases", key: "PRESS_RELEASES" },
@@ -22,23 +24,30 @@ export function MediaCenterRevamp({ data, content }: { data?: any; content?: any
     { label: "Interviews", key: "INTERVIEWS" }
   ];
 
-  useEffect(() => {
-    if (!data && !content) {
-      fetch("/api/public/media")
-        .then(res => res.json())
-        .then(json => {
-          setMediaData(json.data || json);
-          setLoading(false);
-        })
-        .catch(err => {
-          console.error("Error fetching homepage media:", err);
-          setLoading(false);
-        });
+  const fetchHomepageMedia = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await fetch("/api/public/media");
+      if (!res.ok) {
+        throw new Error(`Failed to load homepage media: HTTP ${res.status}`);
+      }
+      const json = await res.json();
+      setMediaData(json.data || json);
+    } catch (err: any) {
+      console.error("[MediaCenterRevamp] Error fetching homepage media:", err);
+      setError(err.message || "Failed to load featured media");
+    } finally {
+      setLoading(false);
     }
-  }, [data, content]);
+  };
 
-  const items = mediaData?.items || [];
-  const homeItems = items
+  useEffect(() => {
+    fetchHomepageMedia();
+  }, []);
+
+  const rawItems = Array.isArray(mediaData?.items) ? mediaData.items : [];
+  const homeItems = rawItems
     .filter((item: any) => item.showOnHome === true && item.status === "PUBLISHED")
     .sort((a: any, b: any) => {
       const orderA = typeof a.sortOrder === "number" ? a.sortOrder : (typeof a.order === "number" ? a.order : 0);
@@ -47,20 +56,23 @@ export function MediaCenterRevamp({ data, content }: { data?: any; content?: any
       const timeA = new Date(a.publishedAt || a.createdAt || 0).getTime();
       const timeB = new Date(b.publishedAt || b.createdAt || 0).getTime();
       return timeB - timeA;
-    });
-  const filteredItems = homeItems.filter((item: any) => {
-    if (!item.category) return true;
-    const itemCat = item.category.toUpperCase().replace(/\s+/g, "_");
-    const tabCat = activeTab.toUpperCase().replace(/\s+/g, "_");
-    return itemCat === tabCat;
-  });
-  const displayItems = (filteredItems.length > 0 ? filteredItems : homeItems).slice(0, 4);
+    })
+    .slice(0, 4);
+
+  const displayItems = activeTab === "ALL"
+    ? homeItems
+    : homeItems.filter((item: any) => {
+        if (!item.category) return false;
+        const itemCat = item.category.toUpperCase().replace(/\s+/g, "_");
+        const tabCat = activeTab.toUpperCase().replace(/\s+/g, "_");
+        return itemCat === tabCat;
+      });
 
   return (
     <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl overflow-hidden">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-12 gap-6">
         <h2 className="text-xl font-black uppercase tracking-tighter text-blue-900 flex items-center gap-3">
-          <ImageIcon size={24} className="text-blue-600" /> Media Center
+          <ImageIcon size={24} className="text-blue-600" /> {mediaData?.pageTitle || mediaData?.title || data?.title || "Media Center"}
         </h2>
         <div className="flex flex-wrap gap-2 p-1 bg-slate-50 rounded-xl overflow-x-auto no-scrollbar">
           {TABS.map((t) => (
@@ -83,13 +95,24 @@ export function MediaCenterRevamp({ data, content }: { data?: any; content?: any
         <div className="py-16 flex justify-center items-center">
           <Activity className="animate-spin text-blue-600" size={32} />
         </div>
+      ) : error ? (
+        <div className="text-center py-16 text-red-500 font-bold uppercase text-xs tracking-widest flex flex-col items-center gap-3">
+          <AlertCircle size={28} className="text-red-500" />
+          <span>Unable to load featured media from authoritative storage.</span>
+          <button
+            onClick={fetchHomepageMedia}
+            className="mt-2 px-6 py-2.5 bg-blue-900 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-blue-800 transition-all shadow-md flex items-center gap-2"
+          >
+            <RefreshCw size={12} /> Retry Connection
+          </button>
+        </div>
       ) : displayItems.length === 0 ? (
         <div className="text-center py-16 text-slate-400 font-bold uppercase text-xs tracking-widest">
-          No featured media items for home.
+          {activeTab === "ALL" ? "No featured media items for home." : `No featured ${TABS.find(t => t.key === activeTab)?.label.toLowerCase()} items for home.`}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {displayItems.slice(0, 4).map((item: any, i: number) => {
+          {displayItems.map((item: any, i: number) => {
             const streamUrl = item.publicMediaUrl || `/api/public/media/stream/${item.mediaId || item.id}`;
             return (
               <motion.div
@@ -144,19 +167,19 @@ export function SocialMediaHub({ data, content }: { data?: any; content?: any })
   const [loading, setLoading] = useState(channels.length === 0);
 
   useEffect(() => {
-    if (!data && !content) {
-      fetch("/api/public/social/channels")
-        .then(res => res.json())
-        .then(json => {
-          setChannels(json.channels || json.data || []);
-          setLoading(false);
-        })
-        .catch(err => {
-          console.error("Error fetching homepage social channels:", err);
-          setLoading(false);
-        });
-    }
-  }, [data, content]);
+    fetch("/api/public/social/channels")
+      .then(res => res.json())
+      .then(json => {
+        if (json.channels && Array.isArray(json.channels) && json.channels.length > 0) {
+          setChannels(json.channels);
+        }
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("Error fetching homepage social channels:", err);
+        setLoading(false);
+      });
+  }, []);
 
   const homeChannels = channels
     .filter((ch: any) => ch.showOnHome !== false && ch.enabled !== false && ch.status !== "DELETED")

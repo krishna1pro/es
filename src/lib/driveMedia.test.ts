@@ -648,8 +648,57 @@ async function runDriveMediaTests() {
     }
     console.log("✓ Test 14 Passed: Homepage sorts entire eligible set by sortOrder before taking top 4, excludes non-home/draft, and uses thumbnail endpoints.");
 
+    // -------------------------------------------------------------
+    // TEST 15: Route Separation & Full Archive Verification
+    // -------------------------------------------------------------
+    console.log("\n[Test 15] Testing route separation between /api/public/media (homepage 4 cards) and /api/public/media/items (full archive)...");
+
+    // 15a: Verify full archive /api/public/media/items returns all published items regardless of showOnHome
+    const archiveRes = await fetch(`${baseUrl}/api/public/media/items?limit=100`);
+    assert.strictEqual(archiveRes.status, 200, "Archive endpoint must return 200");
+    const archiveCacheControl = archiveRes.headers.get("cache-control") || "";
+    assert.ok(archiveCacheControl.includes("no-cache"), "Archive response must include no-cache header");
+    const archiveData: any = await archiveRes.json();
+    const archiveItems: any[] = archiveData.items || [];
+
+    // All 7 published items should be in the archive (Card 50, Card 10, Card 30, Card 2, Card 40, Card 5, NoHome Card 0)
+    // Draft Card 1 should NOT be in the archive
+    assert.strictEqual(archiveItems.length, 7, `Archive must contain all 7 published items, got ${archiveItems.length}`);
+    const noHomeInArchive = archiveItems.find((i: any) => i.title === "NoHome Card 0");
+    assert.ok(noHomeInArchive, "Items with showOnHome=false MUST be present in full archive /api/public/media/items");
+    assert.ok(!archiveItems.some((i: any) => i.status === "DRAFT"), "DRAFT items must never be present in full archive");
+
+    // 15b: Verify homepage endpoint /api/public/media still returns at most 4 items with showOnHome=true
+    const homeCheckRes = await fetch(`${baseUrl}/api/public/media`);
+    assert.strictEqual(homeCheckRes.status, 200, "Homepage media endpoint must return 200");
+    const homeCacheControl = homeCheckRes.headers.get("cache-control") || "";
+    assert.ok(homeCacheControl.includes("no-cache"), "Homepage media response must include no-cache header");
+    const homeCheckData: any = await homeCheckRes.json();
+    const homeItems: any[] = homeCheckData.data?.items || homeCheckData.items || [];
+    assert.strictEqual(homeItems.length, 4, `Homepage endpoint must be strictly capped at 4 items, got ${homeItems.length}`);
+    assert.ok(!homeItems.some((i: any) => i.title === "NoHome Card 0"), "Item with showOnHome=false must NOT be in homepage items");
+
+    // 15c: Verify Sheets service failure produces HTTP 503 on /api/public/media
+    clearMockSheetsStore();
+    const origKey = process.env.GOOGLE_PRIVATE_KEY;
+    const origEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+    delete process.env.GOOGLE_PRIVATE_KEY;
+    delete process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+
+    const errorHomeRes = await fetch(`${baseUrl}/api/public/media`);
+    assert.strictEqual(errorHomeRes.status, 503, "Homepage media endpoint must return 503 when Sheets is unavailable");
+    const errorHomeJson: any = await errorHomeRes.json();
+    assert.strictEqual(errorHomeJson.error, "Service Unavailable", "Must return Service Unavailable error");
+
+    // Restore environment and store
+    if (origKey) process.env.GOOGLE_PRIVATE_KEY = origKey;
+    if (origEmail) process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = origEmail;
+    initMockSheetsStore();
+
+    console.log("✓ Test 15 Passed: Verified strict route separation between homepage (4 items, showOnHome=true) and archive (full published items), cache control headers, and HTTP 503 failure handling.");
+
     console.log("\n==================================================================");
-    console.log("ALL 14 DRIVE, STREAMING, THUMBNAIL & HOMEPAGE TESTS PASSED SUCCESSFULLY!");
+    console.log("ALL 15 DRIVE, STREAMING, THUMBNAIL, ARCHIVE & HOMEPAGE TESTS PASSED SUCCESSFULLY!");
     console.log("==================================================================");
   } finally {
     clearMockSheetsStore();

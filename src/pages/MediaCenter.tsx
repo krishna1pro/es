@@ -21,7 +21,7 @@ export default function MediaCenter() {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch("/api/public/media");
+      const res = await fetch("/api/public/media/items?limit=100");
       if (res.status === 503) {
         throw new Error("Authoritative Google Sheets service is currently unavailable (HTTP 503).");
       }
@@ -70,7 +70,7 @@ export default function MediaCenter() {
   }
 
   const content = data?.data || data || {};
-  const items = content.items || [];
+  const items: any[] = Array.isArray(data?.items) ? data.items : (Array.isArray(content.items) ? content.items : []);
 
   const filteredItems = items.filter((item: any) => {
     const matchesCategory = activeCategory === "ALL" || (item.category && item.category.toUpperCase() === activeCategory);

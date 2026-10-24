@@ -24,6 +24,8 @@ interface MediaItem {
   driveFileName: string;
   publicMediaUrl: string;
   showOnHome: boolean;
+  sortOrder?: number;
+  order?: number;
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED" | "DELETED";
   createdByEmail: string;
   createdAt: string;
@@ -222,7 +224,7 @@ export default function AdminMediaCenter() {
       setUploadProgress(100);
       setSuccess("Media asset successfully uploaded, verified in Drive, and saved in DRAFT status.");
       setShowUploadModal(false);
-      setUploadForm({ title: "", category: "PHOTO_GALLERY", description: "", mimeType: "image/jpeg", showOnHome: false, file: null });
+      setUploadForm({ title: "", category: "PHOTO_GALLERY", description: "", mimeType: "image/jpeg", showOnHome: false, sortOrder: 0, file: null });
       setUploadStep("FORM");
       fetchData();
       setTimeout(() => setSuccess(null), 5000);

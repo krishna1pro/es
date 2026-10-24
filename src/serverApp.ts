@@ -433,7 +433,8 @@ ${JSON.stringify(analyticsData, null, 2)}`;
   // Combines presentation metadata from MongoDB home_sections with authoritative published items from Google Sheets MediaItems
   app.get("/api/public/media", async (_req, res) => {
     try {
-      const section = await getHomeSectionById("media_page");
+      res.setHeader("Cache-Control", "no-cache, must-revalidate");
+      const section = (await getHomeSectionById("media_center")) || (await getHomeSectionById("media_page"));
       let authoritativeItems: any[] = [];
 
       try {
@@ -446,7 +447,11 @@ ${JSON.stringify(analyticsData, null, 2)}`;
         authoritativeItems = items || [];
       } catch (sheetErr: any) {
         console.error("[API] Authoritative Sheets fetch failed for homepage media:", sheetErr);
-        authoritativeItems = [];
+        const status = sheetErr.statusCode || 503;
+        return res.status(status).json({
+          error: "Service Unavailable",
+          message: "Authoritative Google Sheets storage is temporarily unavailable."
+        });
       }
 
       // Sort entire eligible set by sortOrder ascending, with deterministic tie-breaking
@@ -460,7 +465,7 @@ ${JSON.stringify(analyticsData, null, 2)}`;
       });
 
       const mergedSection = {
-        ...(section || { sectionId: "media_page", name: "Media Center", enabled: true }),
+        ...(section || { sectionId: "media_center", name: "Media Center", enabled: true }),
         data: {
           ...(section?.data || {}),
           items: authoritativeItems.slice(0, 4).map(sanitizePublicMediaItem)
@@ -468,9 +473,10 @@ ${JSON.stringify(analyticsData, null, 2)}`;
       };
 
       res.json(mergedSection);
-    } catch (err) {
+    } catch (err: any) {
       console.error("[API] Error fetching public media data:", err);
-      res.status(500).json({ error: "Failed to load media page content" });
+      const status = err.statusCode || 500;
+      res.status(status).json({ error: err.message || "Failed to load media page content" });
     }
   });
 
@@ -482,13 +488,14 @@ ${JSON.stringify(analyticsData, null, 2)}`;
   // Strips private driveFileId and direct driveViewUrl to keep internal storage opaque
   app.get("/api/public/media/items", async (req, res) => {
     try {
+      res.setHeader("Cache-Control", "no-cache, must-revalidate");
       const { category, type, search, limit, offset } = req.query;
       const result = await getMediaItems({
         category: category as string,
         mediaType: type as string,
         status: "PUBLISHED",
         search: search as string,
-        limit: limit ? parseInt(limit as string, 10) : 50,
+        limit: limit ? parseInt(limit as string, 10) : 100,
         offset: offset ? parseInt(offset as string, 10) : 0,
         includeDeleted: false
       });

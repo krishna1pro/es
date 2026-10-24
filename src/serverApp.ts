@@ -1850,6 +1850,33 @@ ${JSON.stringify(analyticsData, null, 2)}`;
     });
   });
 
+  // Admin: Check Google Drive integration connection status
+  app.get("/api/admin/drive/status", requireAdminOrSuperAdmin, async (_req, res) => {
+    try {
+      const client = await getMongoClient();
+      if (!client) {
+        return res.json({ connected: false, message: "Database unavailable" });
+      }
+      const db = client.db(getMongoDbName());
+      const credentials = await db.collection("integration_credentials").find({ active: { $ne: false } }).toArray();
+
+      if (credentials.length === 0) {
+        return res.json({ connected: false, message: "No authorized Google Drive integration found" });
+      }
+
+      const primary = credentials.find((c) => c.isPrimary === true) || credentials[0];
+      res.json({
+        connected: true,
+        primary: Boolean(primary.isPrimary),
+        email: primary.email || "",
+        updatedAt: primary.updatedAt || null,
+        totalIntegrations: credentials.length
+      });
+    } catch (err: any) {
+      res.status(500).json({ connected: false, error: err.message });
+    }
+  });
+
   // Admin: Short-lived access token for Google Picker (Super Admin only)
   // Strictly returns short-lived token and public config. Never exposes refresh tokens or secrets.
   app.get("/api/admin/drive/picker-token", requireSuperAdmin, async (req, res) => {

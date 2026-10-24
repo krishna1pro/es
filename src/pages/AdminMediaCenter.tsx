@@ -40,6 +40,7 @@ export default function AdminMediaCenter() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [driveStatus, setDriveStatus] = useState<{ connected: boolean; email?: string; primary?: boolean; message?: string } | null>(null);
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState("");
@@ -104,11 +105,37 @@ export default function AdminMediaCenter() {
         const jsonAct = await resAct.json();
         setActivityLogs(jsonAct.logs || jsonAct || []);
       }
+
+      // Fetch Drive integration status
+      const resDrive = await authFetch("/api/admin/drive/status");
+      if (resDrive.ok) {
+        const jsonDrive = await resDrive.json();
+        setDriveStatus(jsonDrive);
+      }
     } catch (err: any) {
       console.error("Error loading Admin Media Center:", err);
       setError(err.message || "Failed to load management data.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleConnectDrive = async () => {
+    try {
+      setError(null);
+      const res = await authFetch("/api/admin/drive/auth");
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || "Failed to initiate Google Drive authorization");
+      }
+      const data = await res.json();
+      if (data.authUrl) {
+        window.location.href = data.authUrl;
+      } else {
+        throw new Error("No authorization URL returned from server");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to start Google Drive connection");
     }
   };
 
@@ -355,6 +382,37 @@ export default function AdminMediaCenter() {
               Upload New Asset
             </button>
           </div>
+        </div>
+
+        {/* Google Drive Integration Status Panel */}
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black ${driveStatus?.connected ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-amber-50 text-amber-600 border border-amber-200'}`}>
+              <Globe size={24} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-black uppercase tracking-wider text-slate-900">Google Drive Integration</h4>
+                <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${driveStatus?.connected ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                  {driveStatus?.connected ? (driveStatus.primary ? 'Connected (Primary)' : 'Connected') : 'Disconnected'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
+                {driveStatus?.connected 
+                  ? `Active shared Google Drive account connected${driveStatus.email ? ` (${driveStatus.email})` : ''}.`
+                  : 'No authorized Google Drive integration found. An authorized Super Admin must connect Google Drive.'}
+              </p>
+            </div>
+          </div>
+          {user?.role === "SUPER_ADMIN" && (
+            <button
+              onClick={handleConnectDrive}
+              className="btn-primary flex items-center gap-2 shrink-0 text-xs py-3 px-6"
+            >
+              <Globe size={16} />
+              {driveStatus?.connected ? 'Reconnect Google Drive' : 'Connect Google Drive'}
+            </button>
+          )}
         </div>
 
         {/* Navigation Tabs */}

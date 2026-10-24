@@ -180,7 +180,7 @@ function parseMediaItemRow(row) {
   const updatedAt = String(row[16] || createdAt).trim();
   const publishedAt = String(row[17] || "").trim();
   const sortOrder = parseInt(String(row[18] || "0"), 10) || 0;
-  const displayImage = publicMediaUrl || thumbnailUrl || driveViewUrl || "";
+  const displayImage = thumbnailUrl && !thumbnailUrl.includes("/stream/") ? thumbnailUrl : `/api/public/media/thumbnail/${mediaId}`;
   const displayDate = publishedAt ? new Date(publishedAt).toLocaleDateString("en-US", { month: "long", day: "2-digit", year: "numeric" }) : new Date(createdAt).toLocaleDateString("en-US", { month: "long", day: "2-digit", year: "numeric" });
   return {
     mediaId,
@@ -216,6 +216,7 @@ function parseMediaItemRow(row) {
 }
 function sanitizePublicMediaItem(item) {
   const streamUrl = `/api/public/media/stream/${item.mediaId}`;
+  const resolvedThumbnail = item.thumbnailUrl && !item.thumbnailUrl.includes("/stream/") ? item.thumbnailUrl : `/api/public/media/thumbnail/${item.mediaId}`;
   return {
     mediaId: item.mediaId,
     category: item.category,
@@ -229,7 +230,7 @@ function sanitizePublicMediaItem(item) {
     driveViewUrl: "",
     // Hidden from public callers
     publicMediaUrl: streamUrl,
-    thumbnailUrl: item.thumbnailUrl || streamUrl,
+    thumbnailUrl: resolvedThumbnail,
     showOnHome: item.showOnHome,
     status: item.status,
     createdAt: item.createdAt,
@@ -238,8 +239,8 @@ function sanitizePublicMediaItem(item) {
     // Aliases
     id: item.mediaId,
     type: item.mediaType,
-    imageUrl: item.thumbnailUrl || streamUrl,
-    img: item.thumbnailUrl || streamUrl,
+    imageUrl: resolvedThumbnail,
+    img: resolvedThumbnail,
     caption: item.description,
     order: item.sortOrder,
     date: item.date,
@@ -3669,26 +3670,31 @@ ${JSON.stringify(analyticsData, null, 2)}`;
   app2.get("/api/public/media", async (_req, res) => {
     try {
       const section = await getHomeSectionById("media_page");
-      let authoritativeItems;
+      let authoritativeItems = [];
       try {
         const { items } = await getMediaItems({
           status: "PUBLISHED",
           showOnHomeOnly: true,
-          limit: 12
+          limit: 1e3
         });
-        authoritativeItems = items;
+        authoritativeItems = items || [];
       } catch (sheetErr) {
         console.error("[API] Authoritative Sheets fetch failed for homepage media:", sheetErr);
-        return res.status(503).json({
-          error: "Service Unavailable",
-          message: "Authoritative media storage is temporarily unavailable"
-        });
+        authoritativeItems = [];
       }
+      authoritativeItems.sort((a, b) => {
+        const orderA = typeof a.sortOrder === "number" ? a.sortOrder : typeof a.order === "number" ? a.order : 0;
+        const orderB = typeof b.sortOrder === "number" ? b.sortOrder : typeof b.order === "number" ? b.order : 0;
+        if (orderA !== orderB) return orderA - orderB;
+        const timeA = new Date(a.publishedAt || a.createdAt || 0).getTime();
+        const timeB = new Date(b.publishedAt || b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
       const mergedSection = {
         ...section || { sectionId: "media_page", name: "Media Center", enabled: true },
         data: {
           ...section?.data || {},
-          items: authoritativeItems.map(sanitizePublicMediaItem)
+          items: authoritativeItems.slice(0, 4).map(sanitizePublicMediaItem)
         }
       };
       res.json(mergedSection);
@@ -3759,6 +3765,72 @@ ${JSON.stringify(analyticsData, null, 2)}`;
       const status = err.statusCode || 500;
       res.status(status).json({
         error: err.statusCode === 404 ? "Media file not found" : "Failed to stream media"
+      });
+    }
+  });
+  app2.get("/api/public/media/thumbnail/:opaqueId", async (req, res) => {
+    try {
+      const item = await getMediaItemById(req.params.opaqueId);
+      if (!item || item.status !== "PUBLISHED") {
+        return res.status(404).json({ error: "Media item not found or not published" });
+      }
+      if (!item.driveFileId) {
+        return res.status(404).json({ error: "Media file unavailable in storage" });
+      }
+      if (item.mediaType === "PHOTO") {
+        const streamResult = await streamDriveFile(item.driveFileId);
+        for (const [key, value] of Object.entries(streamResult.headers)) {
+          res.setHeader(key, value);
+        }
+        res.status(streamResult.status);
+        return streamResult.stream.pipe(res);
+      }
+      if (item.mediaType === "VIDEO") {
+        if (!isMockDriveActive()) {
+          try {
+            const drive = await getDriveClient();
+            const fileMeta = await drive.files.get({
+              fileId: item.driveFileId,
+              fields: "id, thumbnailLink, hasThumbnail"
+            });
+            if (fileMeta.data.thumbnailLink) {
+              const driveThumbRes = await fetch(fileMeta.data.thumbnailLink);
+              if (driveThumbRes.ok) {
+                const contentType = driveThumbRes.headers.get("content-type") || "image/jpeg";
+                res.setHeader("Content-Type", contentType);
+                res.setHeader("Cache-Control", "public, max-age=86400");
+                const arrayBuffer = await driveThumbRes.arrayBuffer();
+                return res.send(Buffer.from(arrayBuffer));
+              }
+            }
+          } catch (driveThumbErr) {
+            console.warn("[API] Could not fetch Google Drive thumbnail for video:", driveThumbErr.message);
+          }
+        }
+        const titleSafe = (item.title || "Video Asset").replace(/[<>&"]/g, "");
+        const svg2 = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="none">
+  <rect width="640" height="360" fill="#0f172a"/>
+  <circle cx="320" cy="180" r="44" fill="#2563eb" fill-opacity="0.9"/>
+  <polygon points="312,162 338,180 312,198" fill="#ffffff"/>
+  <text x="320" y="255" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#94a3b8" text-anchor="middle" letter-spacing="0.5">${titleSafe}</text>
+</svg>`;
+        res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+        res.setHeader("Cache-Control", "public, max-age=86400");
+        return res.status(200).send(svg2);
+      }
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="none">
+  <rect width="640" height="360" fill="#1e293b"/>
+  <rect x="270" y="120" width="100" height="120" rx="8" fill="#3b82f6" fill-opacity="0.2" stroke="#60a5fa" stroke-width="2"/>
+  <text x="320" y="280" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#94a3b8" text-anchor="middle">DOCUMENT</text>
+</svg>`;
+      res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      return res.status(200).send(svg);
+    } catch (err) {
+      console.error("[API] Error resolving public media thumbnail:", err.message);
+      const status = err.statusCode || 500;
+      res.status(status).json({
+        error: err.statusCode === 404 ? "Media thumbnail not found" : "Failed to load thumbnail"
       });
     }
   });
@@ -4075,6 +4147,24 @@ ${JSON.stringify(analyticsData, null, 2)}`;
       }
     }
   );
+  app2.post("/api/admin/media/upload/:mediaId/mock-binary", requireMediaAccess, async (req, res) => {
+    try {
+      const isProduction = process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
+      if (isProduction || !isMockDriveActive()) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Mock binary upload endpoint is strictly disabled in production environments."
+        });
+      }
+      const existing = await getMediaItemById(req.params.mediaId);
+      if (!existing) {
+        return res.status(404).json({ error: "Media record not found" });
+      }
+      res.json({ success: true, message: "Mock binary upload received successfully" });
+    } catch (err) {
+      res.status(500).json({ error: err.message || "Failed to process mock binary upload" });
+    }
+  });
   app2.post("/api/admin/media/upload/:mediaId/complete", requireMediaAccess, async (req, res) => {
     const actorContext = {
       uid: req.user.uid,
@@ -4138,6 +4228,7 @@ ${JSON.stringify(analyticsData, null, 2)}`;
             driveFileName: verified.fileName,
             driveViewUrl: verified.driveViewUrl,
             publicMediaUrl: `/api/public/media/stream/${existing.mediaId}`,
+            thumbnailUrl: `/api/public/media/thumbnail/${existing.mediaId}`,
             status: "DRAFT"
             // Stays in DRAFT until explicitly published by user
           },
@@ -4907,6 +4998,29 @@ ${JSON.stringify(analyticsData, null, 2)}`;
       pickerApiKey: process.env.GOOGLE_PICKER_API_KEY,
       projectNumber: process.env.GOOGLE_CLOUD_PROJECT_NUMBER
     });
+  });
+  app2.get("/api/admin/drive/status", requireAdminOrSuperAdmin, async (_req, res) => {
+    try {
+      const client2 = await getMongoClient();
+      if (!client2) {
+        return res.json({ connected: false, message: "Database unavailable" });
+      }
+      const db = client2.db(getMongoDbName());
+      const credentials = await db.collection("integration_credentials").find({ active: { $ne: false } }).toArray();
+      if (credentials.length === 0) {
+        return res.json({ connected: false, message: "No authorized Google Drive integration found" });
+      }
+      const primary = credentials.find((c) => c.isPrimary === true) || credentials[0];
+      res.json({
+        connected: true,
+        primary: Boolean(primary.isPrimary),
+        email: primary.email || "",
+        updatedAt: primary.updatedAt || null,
+        totalIntegrations: credentials.length
+      });
+    } catch (err) {
+      res.status(500).json({ connected: false, error: err.message });
+    }
   });
   app2.get("/api/admin/drive/picker-token", requireSuperAdmin, async (req, res) => {
     try {

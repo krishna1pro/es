@@ -38,9 +38,23 @@ export function MediaCenterRevamp({ data, content }: { data?: any; content?: any
   }, [data, content]);
 
   const items = mediaData?.items || [];
-  const homeItems = items.filter((item: any) => item.showOnHome === true && (item.status === "PUBLISHED" || !item.status));
-  const filteredItems = homeItems.filter((item: any) => !item.category || item.category.toUpperCase() === activeTab);
-  const displayItems = filteredItems.length > 0 ? filteredItems : homeItems.slice(0, 4);
+  const homeItems = items
+    .filter((item: any) => item.showOnHome === true && item.status === "PUBLISHED")
+    .sort((a: any, b: any) => {
+      const orderA = typeof a.sortOrder === "number" ? a.sortOrder : (typeof a.order === "number" ? a.order : 0);
+      const orderB = typeof b.sortOrder === "number" ? b.sortOrder : (typeof b.order === "number" ? b.order : 0);
+      if (orderA !== orderB) return orderA - orderB;
+      const timeA = new Date(a.publishedAt || a.createdAt || 0).getTime();
+      const timeB = new Date(b.publishedAt || b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
+  const filteredItems = homeItems.filter((item: any) => {
+    if (!item.category) return true;
+    const itemCat = item.category.toUpperCase().replace(/\s+/g, "_");
+    const tabCat = activeTab.toUpperCase().replace(/\s+/g, "_");
+    return itemCat === tabCat;
+  });
+  const displayItems = (filteredItems.length > 0 ? filteredItems : homeItems).slice(0, 4);
 
   return (
     <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl overflow-hidden">
@@ -91,7 +105,15 @@ export function MediaCenterRevamp({ data, content }: { data?: any; content?: any
                       src={item.thumbnailUrl || item.img || "https://picsum.photos/seed/med1/600/400"}
                       alt={item.title}
                       className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = "https://picsum.photos/seed/med1/600/400";
+                      }}
                     />
+                    {item.mediaType === "VIDEO" && (
+                      <div className="absolute top-3 right-3 bg-slate-900/80 backdrop-blur text-white p-2 rounded-full shadow-lg">
+                        <PlayCircle size={16} />
+                      </div>
+                    )}
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-900/70 to-transparent flex items-end p-6">
                       <p className="text-[10px] font-black text-white uppercase tracking-widest line-clamp-2">
                         {item.title} &rarr;

@@ -12,6 +12,7 @@ import {
   clearMockSheetsStore,
   getMediaItemById,
   updateMediaItem,
+  createMediaItem,
   getMediaActivityLogs,
   grantSegmentPermission
 } from "./mediaService";
@@ -526,8 +527,129 @@ async function runDriveMediaTests() {
 
     console.log("✓ Test 11 Passed: Audit logging and security guarantees verified.");
 
+    // -------------------------------------------------------------
+    // TEST 12: Thumbnail proxy endpoint for photos and videos
+    // -------------------------------------------------------------
+    console.log("\n[Test 12] Testing public media thumbnail endpoint (/api/public/media/thumbnail/:opaqueId)...");
+
+    // 12a: Photo thumbnail returns image bytes with image/jpeg
+    await updateMediaItem(
+      initData.mediaId,
+      { status: "PUBLISHED" },
+      { uid: SUPER_ADMIN_UID, email: SUPER_ADMIN_EMAIL, role: "SUPER_ADMIN" }
+    );
+    const photoThumbRes = await fetch(`${baseUrl}/api/public/media/thumbnail/${initData.mediaId}`);
+    assert.strictEqual(photoThumbRes.status, 200, "Published photo thumbnail must return 200");
+    assert.ok(photoThumbRes.headers.get("content-type")?.startsWith("image/"), "Photo thumbnail must return image/* content-type");
+    const photoThumbBytes = await photoThumbRes.arrayBuffer();
+    assert.ok(photoThumbBytes.byteLength > 0, "Photo thumbnail must contain valid image bytes");
+
+    // 12b: Video thumbnail returns image/svg+xml poster (never raw MP4 stream)
+    await updateMediaItem(
+      videoInitData.mediaId,
+      { status: "PUBLISHED" },
+      { uid: SUPER_ADMIN_UID, email: SUPER_ADMIN_EMAIL, role: "SUPER_ADMIN" }
+    );
+    const videoThumbRes = await fetch(`${baseUrl}/api/public/media/thumbnail/${videoInitData.mediaId}`);
+    assert.strictEqual(videoThumbRes.status, 200, "Published video thumbnail must return 200");
+    const videoThumbType = videoThumbRes.headers.get("content-type") || "";
+    assert.ok(videoThumbType.includes("image/"), `Video thumbnail must return an image content type, received ${videoThumbType}`);
+    const videoThumbText = await videoThumbRes.text();
+    assert.ok(videoThumbText.includes("<svg") && videoThumbText.includes("</svg>"), "Video thumbnail must return valid image SVG poster");
+
+    // 12c: Unpublished (DRAFT) video returns 404
+    await updateMediaItem(
+      videoInitData.mediaId,
+      { status: "DRAFT" },
+      { uid: SUPER_ADMIN_UID, email: SUPER_ADMIN_EMAIL, role: "SUPER_ADMIN" }
+    );
+    const draftThumbRes = await fetch(`${baseUrl}/api/public/media/thumbnail/${videoInitData.mediaId}`);
+    assert.strictEqual(draftThumbRes.status, 404, "DRAFT thumbnail request must return 404");
+
+    // 12d: Missing item returns 404
+    const notFoundThumbRes = await fetch(`${baseUrl}/api/public/media/thumbnail/non_existent_media_id_xyz`);
+    assert.strictEqual(notFoundThumbRes.status, 404, "Non-existent media ID must return 404");
+    console.log("✓ Test 12 Passed: Thumbnail proxy endpoint correctly serves image bytes for photos, SVG poster for videos, and 404 for unpublished/missing records.");
+
+    // -------------------------------------------------------------
+    // TEST 13: Mock binary upload strictly blocked in production
+    // -------------------------------------------------------------
+    console.log("\n[Test 13] Testing production security guard on /api/admin/media/upload/:mediaId/mock-binary...");
+
+    const origNodeEnv = process.env.NODE_ENV;
+    const origVercelEnv = process.env.VERCEL_ENV;
+
+    // 13a: NODE_ENV = "production"
+    process.env.NODE_ENV = "production";
+    const prodRes = await fetch(`${baseUrl}/api/admin/media/upload/${initData.mediaId}/mock-binary`, {
+      method: "POST",
+      headers: {
+        Authorization: makeAuthHeader(SUPER_ADMIN_UID, SUPER_ADMIN_EMAIL, "SUPER_ADMIN")
+      }
+    });
+    assert.strictEqual(prodRes.status, 403, "Mock binary endpoint must return 403 Forbidden in production");
+    const prodJson: any = await prodRes.json();
+    assert.strictEqual(prodJson.error, "Forbidden", "Must return Forbidden error object");
+
+    // 13b: VERCEL_ENV = "production"
+    delete process.env.NODE_ENV;
+    process.env.VERCEL_ENV = "production";
+    const vercelProdRes = await fetch(`${baseUrl}/api/admin/media/upload/${initData.mediaId}/mock-binary`, {
+      method: "POST",
+      headers: {
+        Authorization: makeAuthHeader(SUPER_ADMIN_UID, SUPER_ADMIN_EMAIL, "SUPER_ADMIN")
+      }
+    });
+    assert.strictEqual(vercelProdRes.status, 403, "Mock binary endpoint must return 403 Forbidden when VERCEL_ENV is production");
+
+    // Restore environment
+    process.env.NODE_ENV = origNodeEnv;
+    process.env.VERCEL_ENV = origVercelEnv;
+    console.log("✓ Test 13 Passed: Mock binary upload is strictly blocked with 403 Forbidden in production environments.");
+
+    // -------------------------------------------------------------
+    // TEST 14: Homepage top-4 sorting & eligibility
+    // -------------------------------------------------------------
+    console.log("\n[Test 14] Testing homepage media ordering and top-4 limit...");
+
+    // Clear previous items to test deterministic sorting cleanly
+    initMockSheetsStore();
+    const actor = { uid: SUPER_ADMIN_UID, email: SUPER_ADMIN_EMAIL, role: "SUPER_ADMIN" };
+
+    // Seed 6 published items with various sortOrder values, plus 1 DRAFT and 1 showOnHome=false
+    await createMediaItem({ title: "Card 50", status: "PUBLISHED", showOnHome: true, sortOrder: 50 }, actor);
+    await createMediaItem({ title: "Card 10", status: "PUBLISHED", showOnHome: true, sortOrder: 10 }, actor);
+    await createMediaItem({ title: "Card 30", status: "PUBLISHED", showOnHome: true, sortOrder: 30 }, actor);
+    await createMediaItem({ title: "Card 2", status: "PUBLISHED", showOnHome: true, sortOrder: 2 }, actor);
+    await createMediaItem({ title: "Card 40", status: "PUBLISHED", showOnHome: true, sortOrder: 40 }, actor);
+    await createMediaItem({ title: "Card 5", status: "PUBLISHED", showOnHome: true, sortOrder: 5 }, actor);
+    await createMediaItem({ title: "Draft Card 1", status: "DRAFT", showOnHome: true, sortOrder: 1 }, actor);
+    await createMediaItem({ title: "NoHome Card 0", status: "PUBLISHED", showOnHome: false, sortOrder: 0 }, actor);
+
+    const homeRes = await fetch(`${baseUrl}/api/public/media`);
+    assert.strictEqual(homeRes.status, 200, "Homepage media endpoint must return 200");
+    const homeData: any = await homeRes.json();
+    const items = homeData.data?.items || homeData.items || [];
+
+    assert.strictEqual(items.length, 4, `Homepage media items must be limited to exactly 4, got ${items.length}`);
+    assert.strictEqual(items[0].sortOrder, 2, "First item must have sortOrder 2");
+    assert.strictEqual(items[1].sortOrder, 5, "Second item must have sortOrder 5");
+    assert.strictEqual(items[2].sortOrder, 10, "Third item must have sortOrder 10");
+    assert.strictEqual(items[3].sortOrder, 30, "Fourth item must have sortOrder 30");
+
+    assert.ok(!items.some((i: any) => i.sortOrder === 40 || i.sortOrder === 50), "Items with sortOrder 40 and 50 must be excluded after sorting");
+    assert.ok(!items.some((i: any) => i.status === "DRAFT"), "DRAFT items must never be included");
+    assert.ok(!items.some((i: any) => i.showOnHome === false), "Items with showOnHome=false must never be included");
+
+    for (const itm of items) {
+      assert.ok(itm.thumbnailUrl && !itm.thumbnailUrl.includes("/stream/"), "thumbnailUrl must point to thumbnail proxy or image, not video stream");
+      assert.strictEqual(itm.driveFileId, "", "driveFileId must remain stripped");
+      assert.strictEqual(itm.driveViewUrl, "", "driveViewUrl must remain stripped");
+    }
+    console.log("✓ Test 14 Passed: Homepage sorts entire eligible set by sortOrder before taking top 4, excludes non-home/draft, and uses thumbnail endpoints.");
+
     console.log("\n==================================================================");
-    console.log("ALL 11 DRIVE & STREAMING TESTS PASSED SUCCESSFULLY!");
+    console.log("ALL 14 DRIVE, STREAMING, THUMBNAIL & HOMEPAGE TESTS PASSED SUCCESSFULLY!");
     console.log("==================================================================");
   } finally {
     clearMockSheetsStore();
@@ -538,10 +660,14 @@ async function runDriveMediaTests() {
   }
 }
 
-runDriveMediaTests().catch((err) => {
-  console.error("Test execution failed:", err);
-  if (server) {
-    server.close();
-  }
-  process.exit(1);
-});
+runDriveMediaTests()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch((err) => {
+    console.error("Test execution failed:", err);
+    if (server) {
+      server.close();
+    }
+    process.exit(1);
+  });

@@ -451,7 +451,10 @@ function parseMediaItemRow(row: any[]): MediaItemDocument {
   const publishedAt = String(row[17] || "").trim();
   const sortOrder = parseInt(String(row[18] || "0"), 10) || 0;
 
-  const displayImage = publicMediaUrl || thumbnailUrl || driveViewUrl || "";
+  const displayImage =
+    thumbnailUrl && !thumbnailUrl.includes("/stream/")
+      ? thumbnailUrl
+      : `/api/public/media/thumbnail/${mediaId}`;
   const displayDate = publishedAt
     ? new Date(publishedAt).toLocaleDateString("en-US", { month: "long", day: "2-digit", year: "numeric" })
     : new Date(createdAt).toLocaleDateString("en-US", { month: "long", day: "2-digit", year: "numeric" });
@@ -492,6 +495,10 @@ function parseMediaItemRow(row: any[]): MediaItemDocument {
 
 export function sanitizePublicMediaItem(item: MediaItemDocument): Record<string, any> {
   const streamUrl = `/api/public/media/stream/${item.mediaId}`;
+  const resolvedThumbnail =
+    item.thumbnailUrl && !item.thumbnailUrl.includes("/stream/")
+      ? item.thumbnailUrl
+      : `/api/public/media/thumbnail/${item.mediaId}`;
   return {
     mediaId: item.mediaId,
     category: item.category,
@@ -502,7 +509,7 @@ export function sanitizePublicMediaItem(item: MediaItemDocument): Record<string,
     driveFileName: "", // Hidden from public callers
     driveViewUrl: "", // Hidden from public callers
     publicMediaUrl: streamUrl,
-    thumbnailUrl: item.thumbnailUrl || streamUrl,
+    thumbnailUrl: resolvedThumbnail,
     showOnHome: item.showOnHome,
     status: item.status,
     createdAt: item.createdAt,
@@ -512,8 +519,8 @@ export function sanitizePublicMediaItem(item: MediaItemDocument): Record<string,
     // Aliases
     id: item.mediaId,
     type: item.mediaType,
-    imageUrl: item.thumbnailUrl || streamUrl,
-    img: item.thumbnailUrl || streamUrl,
+    imageUrl: resolvedThumbnail,
+    img: resolvedThumbnail,
     caption: item.description,
     order: item.sortOrder,
     date: item.date,

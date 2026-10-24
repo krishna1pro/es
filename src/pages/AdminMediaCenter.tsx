@@ -57,6 +57,7 @@ export default function AdminMediaCenter() {
     description: "",
     mimeType: "image/jpeg",
     showOnHome: false,
+    sortOrder: 0,
     file: null as File | null
   });
 
@@ -67,7 +68,8 @@ export default function AdminMediaCenter() {
     description: "",
     category: "PHOTO_GALLERY",
     status: "DRAFT" as any,
-    showOnHome: false
+    showOnHome: false,
+    sortOrder: 0
   });
 
   // Grant Permission Modal state
@@ -166,7 +168,8 @@ export default function AdminMediaCenter() {
           filename: uploadForm.file.name,
           mimeType: uploadForm.file.type || "image/jpeg",
           fileSize: uploadForm.file.size,
-          showOnHome: uploadForm.showOnHome
+          showOnHome: uploadForm.showOnHome,
+          sortOrder: Number(uploadForm.sortOrder) || 0
         })
       });
 
@@ -179,19 +182,27 @@ export default function AdminMediaCenter() {
       const { mediaId, uploadUrl } = initData;
       setUploadProgress(35);
 
-      // 2. Upload binary directly to Google's resumable session URL over HTTPS
-      const uploadStreamRes = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": uploadForm.file.type || "image/jpeg"
-        },
-        body: uploadForm.file
-      });
+      // 2. Upload binary directly or via mock
+      if (uploadUrl && uploadUrl.includes("mock.drive.google.com")) {
+        await authFetch(`/api/admin/media/upload/${mediaId}/mock-binary`, { method: "POST" });
+      } else {
+        try {
+          const uploadStreamRes = await fetch(uploadUrl, {
+            method: "PUT",
+            headers: {
+              "Content-Type": uploadForm.file.type || "image/jpeg"
+            },
+            body: uploadForm.file
+          });
 
-      if (!uploadStreamRes.ok) {
-        // Cancel session on failure
-        await authFetch(`/api/admin/media/upload/${mediaId}/cancel`, { method: "POST" });
-        throw new Error(`Direct Google Drive upload failed: HTTP ${uploadStreamRes.status}`);
+          if (!uploadStreamRes.ok) {
+            await authFetch(`/api/admin/media/upload/${mediaId}/cancel`, { method: "POST" });
+            throw new Error(`Direct Google Drive upload failed: HTTP ${uploadStreamRes.status}`);
+          }
+        } catch (netErr: any) {
+          await authFetch(`/api/admin/media/upload/${mediaId}/cancel`, { method: "POST" });
+          throw new Error(`Google Drive upload failed due to network or CORS restriction: ${netErr.message || "Failed to fetch"}`);
+        }
       }
 
       setUploadProgress(80);
@@ -572,7 +583,8 @@ export default function AdminMediaCenter() {
                                     description: item.description,
                                     category: item.category,
                                     status: item.status,
-                                    showOnHome: item.showOnHome
+                                    showOnHome: item.showOnHome,
+                                    sortOrder: item.sortOrder || item.order || 0
                                   });
                                 }}
                                 className="p-2 bg-slate-100 hover:bg-blue-600 hover:text-white rounded-xl transition-all text-slate-600"
@@ -805,6 +817,17 @@ export default function AdminMediaCenter() {
                     />
                   </div>
 
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Homepage Priority (sortOrder)</label>
+                    <input
+                      type="number"
+                      value={uploadForm.sortOrder}
+                      onChange={(e) => setUploadForm({ ...uploadForm, sortOrder: parseInt(e.target.value, 10) || 0 })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-blue-600"
+                      placeholder="0"
+                    />
+                  </div>
+
                   <label className="flex items-center gap-3 cursor-pointer pt-2">
                     <input
                       type="checkbox"
@@ -812,7 +835,7 @@ export default function AdminMediaCenter() {
                       onChange={(e) => setUploadForm({ ...uploadForm, showOnHome: e.target.checked })}
                       className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                     />
-                    <span className="text-xs font-bold text-slate-700 uppercase">Feature on Homepage (`showOnHome`)</span>
+                    <span className="text-xs font-bold text-slate-700 uppercase">Show on Main Homepage (`showOnHome`)</span>
                   </label>
 
                   <div className="flex items-center justify-end gap-4 pt-6 border-t border-slate-100">
@@ -892,6 +915,17 @@ export default function AdminMediaCenter() {
                   />
                 </div>
 
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Homepage Priority (sortOrder)</label>
+                  <input
+                    type="number"
+                    value={editForm.sortOrder}
+                    onChange={(e) => setEditForm({ ...editForm, sortOrder: parseInt(e.target.value, 10) || 0 })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-blue-600"
+                    placeholder="0"
+                  />
+                </div>
+
                 <label className="flex items-center gap-3 cursor-pointer pt-2">
                   <input
                     type="checkbox"
@@ -899,7 +933,7 @@ export default function AdminMediaCenter() {
                     onChange={(e) => setEditForm({ ...editForm, showOnHome: e.target.checked })}
                     className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
-                  <span className="text-xs font-bold text-slate-700 uppercase">Feature on Homepage</span>
+                  <span className="text-xs font-bold text-slate-700 uppercase">Show on Main Homepage (`showOnHome`)</span>
                 </label>
 
                 <div className="flex items-center justify-end gap-4 pt-6 border-t border-slate-100">

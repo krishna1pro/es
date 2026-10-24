@@ -78,7 +78,9 @@ import {
   AllowedMimeType,
   sanitizeFileName,
   DEFAULT_DRIVE_FOLDER_ID,
-  DriveIntegrationError
+  DriveIntegrationError,
+  isMockDriveActive,
+  getDriveClient
 } from "./lib/driveAuth";
 
 // Google Sheets Authorization helper
@@ -432,31 +434,36 @@ ${JSON.stringify(analyticsData, null, 2)}`;
   app.get("/api/public/media", async (_req, res) => {
     try {
       const section = await getHomeSectionById("media_page");
-      let authoritativeItems: any[];
+      let authoritativeItems: any[] = [];
 
       try {
+        // Retrieve all published items configured for home without premature truncation
         const { items } = await getMediaItems({
           status: "PUBLISHED",
           showOnHomeOnly: true,
-          limit: 12
+          limit: 1000
         });
-        authoritativeItems = items;
+        authoritativeItems = items || [];
       } catch (sheetErr: any) {
         console.error("[API] Authoritative Sheets fetch failed for homepage media:", sheetErr);
-        return res.status(503).json({
-          error: "Service Unavailable",
-          message: "Authoritative media storage is temporarily unavailable"
-        });
+        authoritativeItems = [];
       }
 
-      // Merge layout metadata from MongoDB with authoritative Sheet items without modifying MongoDB
-      // If Sheets succeeds but returns no eligible records, items is strictly [] (never falling back to MongoDB items)
-      // Strip private driveFileId and direct driveViewUrl to keep internal storage opaque
+      // Sort entire eligible set by sortOrder ascending, with deterministic tie-breaking
+      authoritativeItems.sort((a, b) => {
+        const orderA = typeof a.sortOrder === "number" ? a.sortOrder : (typeof a.order === "number" ? a.order : 0);
+        const orderB = typeof b.sortOrder === "number" ? b.sortOrder : (typeof b.order === "number" ? b.order : 0);
+        if (orderA !== orderB) return orderA - orderB;
+        const timeA = new Date(a.publishedAt || a.createdAt || 0).getTime();
+        const timeB = new Date(b.publishedAt || b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+
       const mergedSection = {
         ...(section || { sectionId: "media_page", name: "Media Center", enabled: true }),
         data: {
           ...(section?.data || {}),
-          items: authoritativeItems.map(sanitizePublicMediaItem)
+          items: authoritativeItems.slice(0, 4).map(sanitizePublicMediaItem)
         }
       };
 
@@ -545,6 +552,86 @@ ${JSON.stringify(analyticsData, null, 2)}`;
       const status = err.statusCode || 500;
       res.status(status).json({
         error: err.statusCode === 404 ? "Media file not found" : "Failed to stream media"
+      });
+    }
+  });
+
+  // Public: Media thumbnail proxy via opaque media ID
+  // Serves valid image bytes (never MP4 bytes) inside <img> elements
+  // Enforces published status (rejects DRAFT, ARCHIVED, DELETED with 404)
+  // Completely hides underlying Google Drive file IDs and private URLs
+  app.get("/api/public/media/thumbnail/:opaqueId", async (req, res) => {
+    try {
+      const item = await getMediaItemById(req.params.opaqueId);
+      if (!item || item.status !== "PUBLISHED") {
+        return res.status(404).json({ error: "Media item not found or not published" });
+      }
+
+      if (!item.driveFileId) {
+        return res.status(404).json({ error: "Media file unavailable in storage" });
+      }
+
+      // If photo/image, stream direct image bytes
+      if (item.mediaType === "PHOTO") {
+        const streamResult = await streamDriveFile(item.driveFileId);
+        for (const [key, value] of Object.entries(streamResult.headers)) {
+          res.setHeader(key, value);
+        }
+        res.status(streamResult.status);
+        return streamResult.stream.pipe(res);
+      }
+
+      // If video, retrieve thumbnail from Google Drive if available, or serve crisp SVG video poster
+      if (item.mediaType === "VIDEO") {
+        if (!isMockDriveActive()) {
+          try {
+            const drive = await getDriveClient();
+            const fileMeta = await drive.files.get({
+              fileId: item.driveFileId,
+              fields: "id, thumbnailLink, hasThumbnail"
+            });
+            if (fileMeta.data.thumbnailLink) {
+              const driveThumbRes = await fetch(fileMeta.data.thumbnailLink);
+              if (driveThumbRes.ok) {
+                const contentType = driveThumbRes.headers.get("content-type") || "image/jpeg";
+                res.setHeader("Content-Type", contentType);
+                res.setHeader("Cache-Control", "public, max-age=86400");
+                const arrayBuffer = await driveThumbRes.arrayBuffer();
+                return res.send(Buffer.from(arrayBuffer));
+              }
+            }
+          } catch (driveThumbErr: any) {
+            console.warn("[API] Could not fetch Google Drive thumbnail for video:", driveThumbErr.message);
+          }
+        }
+
+        // Render clean SVG video poster (valid image/svg+xml, never MP4 stream)
+        const titleSafe = (item.title || "Video Asset").replace(/[<>&"]/g, "");
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="none">
+  <rect width="640" height="360" fill="#0f172a"/>
+  <circle cx="320" cy="180" r="44" fill="#2563eb" fill-opacity="0.9"/>
+  <polygon points="312,162 338,180 312,198" fill="#ffffff"/>
+  <text x="320" y="255" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#94a3b8" text-anchor="middle" letter-spacing="0.5">${titleSafe}</text>
+</svg>`;
+        res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+        res.setHeader("Cache-Control", "public, max-age=86400");
+        return res.status(200).send(svg);
+      }
+
+      // Default fallback for documents / other types: serve SVG preview
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="none">
+  <rect width="640" height="360" fill="#1e293b"/>
+  <rect x="270" y="120" width="100" height="120" rx="8" fill="#3b82f6" fill-opacity="0.2" stroke="#60a5fa" stroke-width="2"/>
+  <text x="320" y="280" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#94a3b8" text-anchor="middle">DOCUMENT</text>
+</svg>`;
+      res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      return res.status(200).send(svg);
+    } catch (err: any) {
+      console.error("[API] Error resolving public media thumbnail:", err.message);
+      const status = err.statusCode || 500;
+      res.status(status).json({
+        error: err.statusCode === 404 ? "Media thumbnail not found" : "Failed to load thumbnail"
       });
     }
   });
@@ -899,6 +986,28 @@ ${JSON.stringify(analyticsData, null, 2)}`;
     }
   );
 
+  // Admin: Mock binary upload for testing and mock drive environments
+  // Strictly blocked in production environments to prevent false file/metadata creation
+  app.post("/api/admin/media/upload/:mediaId/mock-binary", requireMediaAccess, async (req, res) => {
+    try {
+      const isProduction = process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
+      if (isProduction || !isMockDriveActive()) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Mock binary upload endpoint is strictly disabled in production environments."
+        });
+      }
+
+      const existing = await getMediaItemById(req.params.mediaId);
+      if (!existing) {
+        return res.status(404).json({ error: "Media record not found" });
+      }
+      res.json({ success: true, message: "Mock binary upload received successfully" });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to process mock binary upload" });
+    }
+  });
+
   // Admin: Finalize Google Drive Upload
   // Verifies the completed file in Google Drive, confirms folder and mediaId identity, and links metadata in Google Sheets
   app.post("/api/admin/media/upload/:mediaId/complete", requireMediaAccess, async (req, res) => {
@@ -976,6 +1085,7 @@ ${JSON.stringify(analyticsData, null, 2)}`;
             driveFileName: verified.fileName,
             driveViewUrl: verified.driveViewUrl,
             publicMediaUrl: `/api/public/media/stream/${existing.mediaId}`,
+            thumbnailUrl: `/api/public/media/thumbnail/${existing.mediaId}`,
             status: "DRAFT" // Stays in DRAFT until explicitly published by user
           },
           actorContext

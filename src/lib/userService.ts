@@ -19,7 +19,7 @@ export function getSuperAdminAllowlist(): string[] {
   const envEmails = (process.env.SUPER_ADMIN_EMAILS || process.env.SUPER_ADMIN_EMAIL || "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
+    .filter((e) => e && e !== "your-admin-account@gmail.com");
 
   return Array.from(new Set(envEmails));
 }

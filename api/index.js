@@ -2179,7 +2179,7 @@ var DB_NAME = process.env.MONGODB_DB_NAME || "chintadaravikumar";
 var USERS_COLLECTION = "admin_users";
 var AUDIT_LOGS_COLLECTION = "audit_logs";
 function getSuperAdminAllowlist() {
-  const envEmails = (process.env.SUPER_ADMIN_EMAILS || process.env.SUPER_ADMIN_EMAIL || "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+  const envEmails = (process.env.SUPER_ADMIN_EMAILS || process.env.SUPER_ADMIN_EMAIL || "").split(",").map((e) => e.trim().toLowerCase()).filter((e) => e && e !== "your-admin-account@gmail.com");
   return Array.from(new Set(envEmails));
 }
 function getSuperAdminUidAllowlist() {
@@ -3064,10 +3064,9 @@ var getActiveDriveCredentials = async (specificUid) => {
   const db = client2.db(getMongoDbName());
   if (specificUid) {
     const creds = await db.collection("integration_credentials").findOne({ uid: specificUid });
-    if (!creds || !creds.refreshToken) {
-      throw new DriveIntegrationError(`No authorized Drive credentials found for user UID '${specificUid}'`, 403);
+    if (creds && creds.refreshToken) {
+      return creds;
     }
-    return creds;
   }
   const credentials = await db.collection("integration_credentials").find({ active: { $ne: false } }).toArray();
   if (credentials.length === 0) {

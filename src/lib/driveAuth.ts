@@ -187,13 +187,12 @@ export const getActiveDriveCredentials = async (specificUid?: string) => {
 
   if (specificUid) {
     const creds = await db.collection("integration_credentials").findOne({ uid: specificUid });
-    if (!creds || !creds.refreshToken) {
-      throw new DriveIntegrationError(`No authorized Drive credentials found for user UID '${specificUid}'`, 403);
+    if (creds && creds.refreshToken) {
+      return creds;
     }
-    return creds;
   }
 
-  // General server-side selector (for uploads and public streaming)
+  // General server-side selector (for uploads, server operations, and public streaming)
   const credentials = await db.collection("integration_credentials").find({ active: { $ne: false } }).toArray();
 
   if (credentials.length === 0) {

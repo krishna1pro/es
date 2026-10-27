@@ -52,6 +52,7 @@ import {
   isSheetsConfigured,
   invalidateAllMediaCaches,
   sanitizePublicMediaItem,
+  extractDriveFileId,
   VALID_MEDIA_SEGMENTS
 } from "./lib/mediaService";
 import {
@@ -73,6 +74,8 @@ import {
   verifyUploadedDriveFile,
   deleteDriveFile,
   streamDriveFile,
+  makeDriveFilePublic,
+  revokeDriveFilePublicAccess,
   getShortLivedPickerToken,
   ALLOWED_MIME_TYPES,
   AllowedMimeType,
@@ -535,11 +538,16 @@ ${JSON.stringify(analyticsData, null, 2)}`;
         return res.status(404).json({ error: "Media item not found or not published" });
       }
 
-      if (!item.driveFileId) {
+      const effectiveDriveFileId = item.driveFileId || extractDriveFileId(item.driveViewUrl, item.publicMediaUrl, item.thumbnailUrl);
+
+      if (!effectiveDriveFileId) {
+        if (item.publicMediaUrl && (item.publicMediaUrl.startsWith("http://") || item.publicMediaUrl.startsWith("https://")) && !item.publicMediaUrl.includes("/api/public/media/")) {
+          return res.redirect(302, item.publicMediaUrl);
+        }
         return res.status(404).json({ error: "Media file unavailable in storage" });
       }
 
-      const streamResult = await streamDriveFile(item.driveFileId, req.headers.range as string);
+      const streamResult = await streamDriveFile(effectiveDriveFileId, req.headers.range as string);
 
       for (const [key, value] of Object.entries(streamResult.headers)) {
         res.setHeader(key, value);
@@ -574,13 +582,25 @@ ${JSON.stringify(analyticsData, null, 2)}`;
         return res.status(404).json({ error: "Media item not found or not published" });
       }
 
-      if (!item.driveFileId) {
-        return res.status(404).json({ error: "Media file unavailable in storage" });
+      const effectiveDriveFileId = item.driveFileId || extractDriveFileId(item.driveViewUrl, item.publicMediaUrl, item.thumbnailUrl);
+
+      if (!effectiveDriveFileId) {
+        // Return clean SVG image poster with image/svg+xml so browser <img> tags render cleanly instead of receiving 404 JSON
+        const titleSafe = (item.title || "Media Asset").replace(/[<>&"]/g, "");
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="none">
+  <rect width="640" height="360" fill="#1e293b"/>
+  <rect x="220" y="100" width="200" height="120" rx="16" fill="#334155" stroke="#475569" stroke-width="2"/>
+  <text x="320" y="155" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="800" fill="#94a3b8" text-anchor="middle">FILE UNAVAILABLE</text>
+  <text x="320" y="250" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#64748b" text-anchor="middle">${titleSafe}</text>
+</svg>`;
+        res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+        res.setHeader("Cache-Control", "public, max-age=3600");
+        return res.status(200).send(svg);
       }
 
       // If photo/image, stream direct image bytes
-      if (item.mediaType === "PHOTO") {
-        const streamResult = await streamDriveFile(item.driveFileId);
+      if (item.mediaType === "PHOTO" || item.mediaType === "IMAGE") {
+        const streamResult = await streamDriveFile(effectiveDriveFileId);
         for (const [key, value] of Object.entries(streamResult.headers)) {
           res.setHeader(key, value);
         }
@@ -1204,6 +1224,30 @@ ${JSON.stringify(analyticsData, null, 2)}`;
               });
             }
           }
+        }
+      }
+
+      const targetStatus = req.body?.status || existing.status;
+      const isPublishing = targetStatus === "PUBLISHED" && existing.status !== "PUBLISHED";
+      const isUnpublishing = targetStatus !== "PUBLISHED" && existing.status === "PUBLISHED";
+
+      const driveFileId = existing.driveFileId || extractDriveFileId(existing.driveViewUrl, existing.publicMediaUrl, existing.thumbnailUrl, req.body?.driveViewUrl, req.body?.publicMediaUrl);
+
+      if (isPublishing && driveFileId) {
+        try {
+          await makeDriveFilePublic(driveFileId);
+        } catch (shareErr: any) {
+          console.error("[API] Failed to apply public Drive permission during publish:", shareErr.message);
+          return res.status(shareErr.statusCode || 400).json({
+            error: "Drive Public Sharing Failed",
+            message: `Could not enable public Google Drive viewing permissions for file '${driveFileId}': ${shareErr.message}`
+          });
+        }
+      } else if (isUnpublishing && driveFileId) {
+        try {
+          await revokeDriveFilePublicAccess(driveFileId);
+        } catch (revokeErr: any) {
+          console.warn("[API] Warning: Failed to revoke public Drive permission during unpublish:", revokeErr.message);
         }
       }
 

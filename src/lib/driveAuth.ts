@@ -71,6 +71,7 @@ interface MockDriveFile {
   driveFileId: string;
   uploaded: boolean;
   trashed: boolean;
+  isPublic?: boolean;
   content: Buffer;
 }
 
@@ -483,6 +484,94 @@ export const deleteDriveFile = async (fileId: string): Promise<boolean> => {
     return true;
   } catch (err: any) {
     console.error(`[DriveAuth] Warning: Failed to delete Drive file '${fileId}':`, err.message);
+    return false;
+  }
+};
+
+// ==========================================
+// AUTOMATED GOOGLE DRIVE SHARING / PERMISSIONS
+// ==========================================
+
+export const makeDriveFilePublic = async (fileId: string): Promise<{ success: boolean; permissionId?: string; alreadyPublic?: boolean }> => {
+  if (!fileId) return { success: true };
+
+  if (isMockDriveActive()) {
+    for (const val of mockDriveFiles.values()) {
+      if (val.driveFileId === fileId) {
+        val.isPublic = true;
+        break;
+      }
+    }
+    return { success: true, permissionId: "mock_anyone_perm_" + fileId };
+  }
+
+  try {
+    const drive = await getDriveClient();
+
+    // Check existing permissions to prevent duplicate permission creation
+    const permList = await drive.permissions.list({
+      fileId,
+      fields: "permissions(id, type, role)"
+    });
+
+    const existingAnyone = (permList.data.permissions || []).find(
+      (p) => p.type === "anyone" && (p.role === "reader" || p.role === "viewer")
+    );
+
+    if (existingAnyone && existingAnyone.id) {
+      return { success: true, permissionId: existingAnyone.id, alreadyPublic: true };
+    }
+
+    // Create 'anyone' reader permission
+    const created = await drive.permissions.create({
+      fileId,
+      requestBody: {
+        type: "anyone",
+        role: "reader"
+      },
+      fields: "id"
+    });
+
+    return { success: true, permissionId: created.data.id || undefined };
+  } catch (err: any) {
+    console.error(`[DriveAuth] Public permission creation failed for file '${fileId}':`, err.message);
+    throw new DriveIntegrationError(
+      `Google Drive public sharing failed for file '${fileId}': ${err.message || "Organization or Drive policy prohibits public sharing."}`,
+      400
+    );
+  }
+};
+
+export const revokeDriveFilePublicAccess = async (fileId: string): Promise<boolean> => {
+  if (!fileId) return true;
+
+  if (isMockDriveActive()) {
+    for (const val of mockDriveFiles.values()) {
+      if (val.driveFileId === fileId) {
+        val.isPublic = false;
+        break;
+      }
+    }
+    return true;
+  }
+
+  try {
+    const drive = await getDriveClient();
+    const permList = await drive.permissions.list({
+      fileId,
+      fields: "permissions(id, type, role)"
+    });
+
+    const anyonePerms = (permList.data.permissions || []).filter((p) => p.type === "anyone");
+
+    for (const p of anyonePerms) {
+      if (p.id) {
+        await drive.permissions.delete({ fileId, permissionId: p.id });
+      }
+    }
+    return true;
+  } catch (err: any) {
+    console.warn(`[DriveAuth] Warning: Could not revoke public permissions for file '${fileId}':`, err.message);
     return false;
   }
 };

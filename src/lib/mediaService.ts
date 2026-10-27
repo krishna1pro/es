@@ -426,13 +426,39 @@ function parseBooleanCell(val: any): boolean {
   return s === "TRUE" || s === "1" || s === "YES";
 }
 
+export function extractDriveFileId(...inputs: (string | undefined)[]): string {
+  for (const input of inputs) {
+    if (!input || typeof input !== "string") continue;
+    const trimmed = input.trim();
+    if (!trimmed) continue;
+
+    // Raw file ID format (no slashes, no colons, at least 10 chars)
+    if (!trimmed.includes("/") && !trimmed.includes(":") && trimmed.length >= 10) {
+      return trimmed;
+    }
+
+    // Match /file/d/{id}
+    const matchFileD = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (matchFileD && matchFileD[1]) {
+      return matchFileD[1];
+    }
+
+    // Match ?id={id} or &id={id}
+    const matchIdParam = trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (matchIdParam && matchIdParam[1]) {
+      return matchIdParam[1];
+    }
+  }
+  return "";
+}
+
 function parseMediaItemRow(row: any[]): MediaItemDocument {
   const mediaId = String(row[0] || "").trim();
   const category = String(row[1] || "GENERAL").trim().toUpperCase();
   const mediaType = String(row[2] || "PHOTO").trim().toUpperCase();
   const title = String(row[3] || "").trim();
   const description = String(row[4] || "").trim();
-  const driveFileId = String(row[5] || "").trim();
+  const rawDriveFileId = String(row[5] || "").trim();
   const driveFileName = String(row[6] || "").trim();
   const driveViewUrl = String(row[7] || "").trim();
   const publicMediaUrl = String(row[8] || "").trim();
@@ -450,6 +476,8 @@ function parseMediaItemRow(row: any[]): MediaItemDocument {
   const updatedAt = String(row[16] || createdAt).trim();
   const publishedAt = String(row[17] || "").trim();
   const sortOrder = parseInt(String(row[18] || "0"), 10) || 0;
+
+  const driveFileId = extractDriveFileId(rawDriveFileId, driveViewUrl, publicMediaUrl, thumbnailUrl);
 
   const displayImage =
     thumbnailUrl && !thumbnailUrl.includes("/stream/")
@@ -495,10 +523,26 @@ function parseMediaItemRow(row: any[]): MediaItemDocument {
 
 export function sanitizePublicMediaItem(item: MediaItemDocument): Record<string, any> {
   const streamUrl = `/api/public/media/stream/${item.mediaId}`;
-  const resolvedThumbnail =
-    item.thumbnailUrl && !item.thumbnailUrl.includes("/stream/")
-      ? item.thumbnailUrl
-      : `/api/public/media/thumbnail/${item.mediaId}`;
+
+  const isExternalPublicUrl =
+    item.publicMediaUrl &&
+    (item.publicMediaUrl.startsWith("http://") || item.publicMediaUrl.startsWith("https://")) &&
+    !item.publicMediaUrl.includes("drive.google.com") &&
+    !item.publicMediaUrl.includes("/api/public/media/stream/");
+
+  const finalPublicUrl = isExternalPublicUrl ? item.publicMediaUrl : streamUrl;
+
+  const isExternalThumbnail =
+    item.thumbnailUrl &&
+    (item.thumbnailUrl.startsWith("http://") || item.thumbnailUrl.startsWith("https://")) &&
+    !item.thumbnailUrl.includes("drive.google.com") &&
+    !item.thumbnailUrl.includes("/api/public/media/thumbnail/") &&
+    !item.thumbnailUrl.includes("/api/public/media/stream/");
+
+  const resolvedThumbnail = isExternalThumbnail
+    ? item.thumbnailUrl
+    : `/api/public/media/thumbnail/${item.mediaId}`;
+
   return {
     mediaId: item.mediaId,
     category: item.category,
@@ -508,7 +552,7 @@ export function sanitizePublicMediaItem(item: MediaItemDocument): Record<string,
     driveFileId: "", // Hidden from public callers
     driveFileName: "", // Hidden from public callers
     driveViewUrl: "", // Hidden from public callers
-    publicMediaUrl: streamUrl,
+    publicMediaUrl: finalPublicUrl,
     thumbnailUrl: resolvedThumbnail,
     showOnHome: item.showOnHome,
     status: item.status,
@@ -524,8 +568,8 @@ export function sanitizePublicMediaItem(item: MediaItemDocument): Record<string,
     caption: item.description,
     order: item.sortOrder,
     date: item.date,
-    videoUrl: item.mediaType === "VIDEO" ? streamUrl : undefined,
-    linkUrl: streamUrl
+    videoUrl: item.mediaType === "VIDEO" ? finalPublicUrl : undefined,
+    linkUrl: finalPublicUrl
   };
 }
 

@@ -697,8 +697,79 @@ async function runDriveMediaTests() {
 
     console.log("✓ Test 15 Passed: Verified strict route separation between homepage (4 items, showOnHome=true) and archive (full published items), cache control headers, and HTTP 503 failure handling.");
 
+    // -------------------------------------------------------------
+    // TEST 16: Automated Google Drive Sharing & Metadata Verification
+    // -------------------------------------------------------------
+    console.log("\n[Test 16] Testing automated Drive metadata capture & public sharing permission workflow...");
+
+    // 16a: Initiate upload
+    const initUploadRes = await fetch(`${baseUrl}/api/admin/media/upload`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: makeAuthHeader(SUPER_ADMIN_UID, SUPER_ADMIN_EMAIL, "SUPER_ADMIN")
+      },
+      body: JSON.stringify({
+        title: "Automated Share Asset",
+        category: "PHOTO_GALLERY",
+        filename: "auto_share_photo.jpg",
+        mimeType: "image/jpeg",
+        fileSize: 1024,
+        showOnHome: true
+      })
+    });
+    assert.strictEqual(initUploadRes.status, 201, "Upload initiation must return 201");
+    const autoInitData: any = await initUploadRes.json();
+    const autoMediaId = autoInitData.mediaId;
+
+    // 16b: Complete upload and verify metadata columns
+    const completeUploadRes = await fetch(`${baseUrl}/api/admin/media/upload/${autoMediaId}/complete`, {
+      method: "POST",
+      headers: {
+        Authorization: makeAuthHeader(SUPER_ADMIN_UID, SUPER_ADMIN_EMAIL, "SUPER_ADMIN")
+      }
+    });
+    assert.strictEqual(completeUploadRes.status, 200, "Upload completion must return 200");
+    const completeJson: any = await completeUploadRes.json();
+    assert.ok(completeJson.item.driveFileId, "driveFileId must be populated upon upload completion");
+    assert.ok(completeJson.item.driveFileName, "driveFileName must be populated");
+    assert.ok(completeJson.item.driveViewUrl.includes("drive.google.com"), "driveViewUrl must contain Google Drive view URL");
+    assert.strictEqual(completeJson.item.publicMediaUrl, `/api/public/media/stream/${autoMediaId}`, "publicMediaUrl must preserve app stream format");
+    assert.strictEqual(completeJson.item.thumbnailUrl, `/api/public/media/thumbnail/${autoMediaId}`, "thumbnailUrl must preserve app thumbnail format");
+
+    // 16c: Publish item and verify automated public Drive sharing
+    const publishRes = await fetch(`${baseUrl}/api/admin/media/items/${autoMediaId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: makeAuthHeader(SUPER_ADMIN_UID, SUPER_ADMIN_EMAIL, "SUPER_ADMIN")
+      },
+      body: JSON.stringify({ status: "PUBLISHED" })
+    });
+    assert.strictEqual(publishRes.status, 200, "Publishing item must return 200");
+    const publishJson: any = await publishRes.json();
+    assert.strictEqual(publishJson.item.status, "PUBLISHED", "Status must be updated to PUBLISHED");
+
+    const mockStore = getMockDriveFilesMap();
+    const mockFile = mockStore.get(autoMediaId);
+    assert.ok(mockFile && mockFile.isPublic === true, "Mock Drive file must be marked as public upon publication");
+
+    // 16d: Unpublish item (move back to DRAFT) and verify public permission revocation
+    const unpublishRes = await fetch(`${baseUrl}/api/admin/media/items/${autoMediaId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: makeAuthHeader(SUPER_ADMIN_UID, SUPER_ADMIN_EMAIL, "SUPER_ADMIN")
+      },
+      body: JSON.stringify({ status: "DRAFT" })
+    });
+    assert.strictEqual(unpublishRes.status, 200, "Unpublishing item must return 200");
+    assert.ok(mockFile && !mockFile.isPublic, "Mock Drive file public flag must be revoked when status moves to DRAFT");
+
+    console.log("✓ Test 16 Passed: Verified automated Drive metadata capture, public sharing permission creation on publish, and revocation on unpublish.");
+
     console.log("\n==================================================================");
-    console.log("ALL 15 DRIVE, STREAMING, THUMBNAIL, ARCHIVE & HOMEPAGE TESTS PASSED SUCCESSFULLY!");
+    console.log("ALL 16 DRIVE, STREAMING, THUMBNAIL, ARCHIVE & SHARING TESTS PASSED SUCCESSFULLY!");
     console.log("==================================================================");
   } finally {
     clearMockSheetsStore();

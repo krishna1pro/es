@@ -584,28 +584,37 @@ ${JSON.stringify(analyticsData, null, 2)}`;
 
       const effectiveDriveFileId = item.driveFileId || extractDriveFileId(item.driveViewUrl, item.publicMediaUrl, item.thumbnailUrl);
 
-      if (!effectiveDriveFileId) {
-        // Return clean SVG image poster with image/svg+xml so browser <img> tags render cleanly instead of receiving 404 JSON
-        const titleSafe = (item.title || "Media Asset").replace(/[<>&"]/g, "");
+      // Helper to render clean SVG poster graphic for browser <img> tags
+      const renderSvgPoster = (title: string, subtitle = "MEDIA ASSET", bg = "#1e293b") => {
+        const titleSafe = (title || "Media Asset").replace(/[<>&"]/g, "");
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="none">
-  <rect width="640" height="360" fill="#1e293b"/>
+  <rect width="640" height="360" fill="${bg}"/>
   <rect x="220" y="100" width="200" height="120" rx="16" fill="#334155" stroke="#475569" stroke-width="2"/>
-  <text x="320" y="155" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="800" fill="#94a3b8" text-anchor="middle">FILE UNAVAILABLE</text>
+  <text x="320" y="155" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="800" fill="#94a3b8" text-anchor="middle">${subtitle}</text>
   <text x="320" y="250" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#64748b" text-anchor="middle">${titleSafe}</text>
 </svg>`;
         res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
         res.setHeader("Cache-Control", "public, max-age=3600");
         return res.status(200).send(svg);
+      };
+
+      if (!effectiveDriveFileId) {
+        return renderSvgPoster(item.title, "FILE UNAVAILABLE");
       }
 
-      // If photo/image, stream direct image bytes
+      // If photo/image, stream direct image bytes with graceful SVG fallback on Drive failure
       if (item.mediaType === "PHOTO" || item.mediaType === "IMAGE") {
-        const streamResult = await streamDriveFile(effectiveDriveFileId);
-        for (const [key, value] of Object.entries(streamResult.headers)) {
-          res.setHeader(key, value);
+        try {
+          const streamResult = await streamDriveFile(effectiveDriveFileId);
+          for (const [key, value] of Object.entries(streamResult.headers)) {
+            res.setHeader(key, value);
+          }
+          res.status(streamResult.status);
+          return streamResult.stream.pipe(res);
+        } catch (streamErr: any) {
+          console.warn("[API] Could not fetch Google Drive image stream for thumbnail:", streamErr.message);
+          return renderSvgPoster(item.title, "IMAGE PREVIEW");
         }
-        res.status(streamResult.status);
-        return streamResult.stream.pipe(res);
       }
 
       // If video, retrieve thumbnail from Google Drive if available, or serve crisp SVG video poster
@@ -614,7 +623,7 @@ ${JSON.stringify(analyticsData, null, 2)}`;
           try {
             const drive = await getDriveClient();
             const fileMeta = await drive.files.get({
-              fileId: item.driveFileId,
+              fileId: effectiveDriveFileId,
               fields: "id, thumbnailLink, hasThumbnail"
             });
             if (fileMeta.data.thumbnailLink) {
@@ -646,20 +655,22 @@ ${JSON.stringify(analyticsData, null, 2)}`;
       }
 
       // Default fallback for documents / other types: serve SVG preview
+      return renderSvgPoster(item.title, "DOCUMENT");
+    } catch (err: any) {
+      if (err.statusCode === 404) {
+        return res.status(404).json({ error: "Media thumbnail not found" });
+      }
+      console.warn("[API] Error resolving public media thumbnail:", err.message);
+      // Return clean SVG image poster so <img> tags in browser render without breaking
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="none">
   <rect width="640" height="360" fill="#1e293b"/>
-  <rect x="270" y="120" width="100" height="120" rx="8" fill="#3b82f6" fill-opacity="0.2" stroke="#60a5fa" stroke-width="2"/>
-  <text x="320" y="280" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#94a3b8" text-anchor="middle">DOCUMENT</text>
+  <rect x="220" y="100" width="200" height="120" rx="16" fill="#334155" stroke="#475569" stroke-width="2"/>
+  <text x="320" y="155" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="800" fill="#94a3b8" text-anchor="middle">MEDIA PREVIEW</text>
+  <text x="320" y="250" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#64748b" text-anchor="middle">Media Asset</text>
 </svg>`;
       res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
-      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.setHeader("Cache-Control", "public, max-age=60");
       return res.status(200).send(svg);
-    } catch (err: any) {
-      console.error("[API] Error resolving public media thumbnail:", err.message);
-      const status = err.statusCode || 500;
-      res.status(status).json({
-        error: err.statusCode === 404 ? "Media thumbnail not found" : "Failed to load thumbnail"
-      });
     }
   });
 

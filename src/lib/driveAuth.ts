@@ -222,13 +222,37 @@ export const getActiveDriveCredentials = async (specificUid?: string) => {
 export const getDriveOAuthClient = async (uid?: string) => {
   const creds = await getActiveDriveCredentials(uid);
 
+  const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
+    throw new DriveIntegrationError(
+      "Google Drive OAuth client credentials (GOOGLE_DRIVE_CLIENT_ID or GOOGLE_DRIVE_CLIENT_SECRET) are unconfigured in environment.",
+      503
+    );
+  }
+
+  let decryptedToken = "";
+  try {
+    decryptedToken = decryptToken(creds.refreshToken);
+  } catch (err: any) {
+    console.error("[DriveAuth] Refresh token decryption failed:", err?.message);
+  }
+
+  if (!decryptedToken) {
+    throw new DriveIntegrationError(
+      "Stored Google Drive refresh token is invalid or missing. An authorized Super Admin must re-authenticate Google Drive in Settings.",
+      503
+    );
+  }
+
   const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_DRIVE_CLIENT_ID,
-    process.env.GOOGLE_DRIVE_CLIENT_SECRET,
-    `${process.env.SITE_URL}/api/admin/drive/callback`
+    clientId,
+    clientSecret,
+    `${process.env.SITE_URL || ""}/api/admin/drive/callback`
   );
 
-  oauth2Client.setCredentials({ refresh_token: decryptToken(creds.refreshToken) });
+  oauth2Client.setCredentials({ refresh_token: decryptedToken });
   return { oauth2Client, creds };
 };
 
@@ -652,67 +676,74 @@ export const streamDriveFile = async (fileId: string, rangeHeader?: string): Pro
     };
   }
 
-  const drive = await getDriveClient();
-  const meta = await drive.files.get({
-    fileId,
-    fields: "id, name, mimeType, size, trashed"
-  });
+  try {
+    const drive = await getDriveClient();
+    const meta = await drive.files.get({
+      fileId,
+      fields: "id, name, mimeType, size, trashed"
+    });
 
-  if (meta.data.trashed) {
-    throw new DriveIntegrationError("Drive file has been trashed", 404);
-  }
+    if (meta.data.trashed) {
+      throw new DriveIntegrationError("Drive file has been trashed", 404);
+    }
 
-  const totalSize = Number(meta.data.size || 0);
-  const mimeType = meta.data.mimeType || "application/octet-stream";
+    const totalSize = Number(meta.data.size || 0);
+    const mimeType = meta.data.mimeType || "application/octet-stream";
 
-  if (rangeHeader && totalSize > 0) {
-    const matches = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
-    if (matches) {
-      let start = matches[1] ? parseInt(matches[1], 10) : 0;
-      let end = matches[2] ? parseInt(matches[2], 10) : totalSize - 1;
-      if (matches[1] === "" && matches[2] !== "") {
-        start = totalSize - parseInt(matches[2], 10);
-        end = totalSize - 1;
-      }
-
-      if (isNaN(start) || isNaN(end) || start >= totalSize || end >= totalSize || start > end) {
-        const rangeErr = new DriveIntegrationError("Requested Range Not Satisfiable", 416, { totalSize });
-        throw rangeErr;
-      }
-
-      const chunkLength = end - start + 1;
-      const driveRes = await drive.files.get(
-        { fileId, alt: "media" },
-        { responseType: "stream", headers: { Range: `bytes=${start}-${end}` } }
-      );
-
-      return {
-        status: 206,
-        stream: driveRes.data as unknown as Readable,
-        headers: {
-          "Content-Type": mimeType,
-          "Content-Length": String(chunkLength),
-          "Content-Range": `bytes ${start}-${end}/${totalSize}`,
-          "Accept-Ranges": "bytes",
-          "Cache-Control": "public, max-age=86400"
+    if (rangeHeader && totalSize > 0) {
+      const matches = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
+      if (matches) {
+        let start = matches[1] ? parseInt(matches[1], 10) : 0;
+        let end = matches[2] ? parseInt(matches[2], 10) : totalSize - 1;
+        if (matches[1] === "" && matches[2] !== "") {
+          start = totalSize - parseInt(matches[2], 10);
+          end = totalSize - 1;
         }
-      };
+
+        if (isNaN(start) || isNaN(end) || start >= totalSize || end >= totalSize || start > end) {
+          const rangeErr = new DriveIntegrationError("Requested Range Not Satisfiable", 416, { totalSize });
+          throw rangeErr;
+        }
+
+        const chunkLength = end - start + 1;
+        const driveRes = await drive.files.get(
+          { fileId, alt: "media" },
+          { responseType: "stream", headers: { Range: `bytes=${start}-${end}` } }
+        );
+
+        return {
+          status: 206,
+          stream: driveRes.data as unknown as Readable,
+          headers: {
+            "Content-Type": mimeType,
+            "Content-Length": String(chunkLength),
+            "Content-Range": `bytes ${start}-${end}/${totalSize}`,
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=86400"
+          }
+        };
+      }
     }
+
+    const driveRes = await drive.files.get(
+      { fileId, alt: "media" },
+      { responseType: "stream" }
+    );
+
+    return {
+      status: 200,
+      stream: driveRes.data as unknown as Readable,
+      headers: {
+        "Content-Type": mimeType,
+        ...(totalSize > 0 ? { "Content-Length": String(totalSize) } : {}),
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=86400"
+      }
+    };
+  } catch (err: any) {
+    if (err instanceof DriveIntegrationError) throw err;
+    const status = err.response?.status || err.statusCode || 500;
+    const msg = err.message || "Failed to stream file from Google Drive";
+    throw new DriveIntegrationError(`Drive streaming error: ${msg}`, status);
   }
-
-  const driveRes = await drive.files.get(
-    { fileId, alt: "media" },
-    { responseType: "stream" }
-  );
-
-  return {
-    status: 200,
-    stream: driveRes.data as unknown as Readable,
-    headers: {
-      "Content-Type": mimeType,
-      ...(totalSize > 0 ? { "Content-Length": String(totalSize) } : {}),
-      "Accept-Ranges": "bytes",
-      "Cache-Control": "public, max-age=86400"
-    }
-  };
 };

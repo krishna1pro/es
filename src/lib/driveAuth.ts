@@ -242,12 +242,21 @@ export const getActiveDriveCredentials = async (specificUid?: string) => {
 export const getDriveOAuthClient = async (uid?: string) => {
   const creds = await getActiveDriveCredentials(uid);
 
-  const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+  // Robust selector: prioritize GOOGLE_DRIVE_ specific variables, never mix sets
+  let clientId = process.env.GOOGLE_DRIVE_CLIENT_ID;
+  let clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET;
+  let source = "GOOGLE_DRIVE_CLIENT_*";
 
   if (!clientId || !clientSecret) {
+    clientId = process.env.GOOGLE_CLIENT_ID;
+    clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    source = "GOOGLE_CLIENT_*";
+  }
+
+  if (!clientId || !clientSecret) {
+    console.error("[DriveAuth] Missing OAuth credentials. Set GOOGLE_DRIVE_CLIENT_ID and GOOGLE_DRIVE_CLIENT_SECRET in Secrets.");
     throw new DriveIntegrationError(
-      "Google Drive OAuth client credentials (GOOGLE_DRIVE_CLIENT_ID / GOOGLE_CLIENT_ID or GOOGLE_DRIVE_CLIENT_SECRET / GOOGLE_CLIENT_SECRET) are unconfigured in environment.",
+      `Google Drive OAuth client credentials are unconfigured or incomplete. Both Client ID and Client Secret must be present (Checked ${source}).`,
       503
     );
   }
@@ -276,32 +285,33 @@ export const getDriveOAuthClient = async (uid?: string) => {
   );
 
   oauth2Client.setCredentials({ refresh_token: decryptedToken });
-  return { oauth2Client, creds };
+  return { oauth2Client, creds, source };
 };
 
 export function formatDriveOAuthError(err: any): DriveIntegrationError {
   if (err instanceof DriveIntegrationError) return err;
 
   const status = err.response?.status || err.statusCode || 500;
-  const rawMsg = err.response?.data?.error || err.message || "";
-  const errDesc = err.response?.data?.error_description || "";
+  const rawMsg = (err.response?.data?.error || err.message || "").toString();
+  const errDesc = (err.response?.data?.error_description || "").toString();
 
-  if (typeof rawMsg === "string" && (rawMsg.includes("invalid_client") || rawMsg.includes("unauthorized_client"))) {
+  if (rawMsg.includes("invalid_client") || rawMsg.includes("unauthorized_client") || errDesc.includes("invalid_client")) {
     return new DriveIntegrationError(
-      "Google OAuth error 'invalid_client': The configured OAuth Client ID or Client Secret is invalid or mismatched in environment variables. Verify GOOGLE_DRIVE_CLIENT_ID / GOOGLE_CLIENT_ID and GOOGLE_DRIVE_CLIENT_SECRET / GOOGLE_CLIENT_SECRET in Vercel settings.",
+      "Google OAuth error 'invalid_client': The configured OAuth Client ID or Client Secret is invalid or mismatched in environment variables. Verify GOOGLE_DRIVE_CLIENT_ID and GOOGLE_DRIVE_CLIENT_SECRET in Vercel settings (they must belong to the same project).",
       401,
-      { code: "invalid_client", details: errDesc }
+      { code: "invalid_client", details: errDesc || rawMsg }
     );
   }
 
   if (
-    (typeof rawMsg === "string" && rawMsg.includes("invalid_grant")) ||
-    (typeof errDesc === "string" && errDesc.includes("Token has been expired or revoked"))
+    rawMsg.includes("invalid_grant") ||
+    errDesc.includes("Token has been expired or revoked") ||
+    rawMsg.includes("expired")
   ) {
     return new DriveIntegrationError(
       "Google OAuth error 'invalid_grant': Stored refresh token has expired or been revoked. Super Admin must click Reconnect Drive in Admin Settings.",
       401,
-      { code: "invalid_grant", details: errDesc }
+      { code: "invalid_grant", details: errDesc || rawMsg }
     );
   }
 
@@ -329,20 +339,24 @@ export const getShortLivedPickerToken = async (uid?: string) => {
   }
 
   const { oauth2Client } = await getDriveOAuthClient(uid);
-  const tokenRes = await oauth2Client.getAccessToken();
-  const token = tokenRes.token;
+  try {
+    const tokenRes = await oauth2Client.getAccessToken();
+    const token = tokenRes.token;
 
-  if (!token) {
-    throw new DriveIntegrationError("Failed to obtain short-lived access token from Google OAuth", 502);
+    if (!token) {
+      throw new DriveIntegrationError("Failed to obtain short-lived access token from Google OAuth", 502);
+    }
+
+    return {
+      accessToken: token,
+      apiKey: process.env.GOOGLE_PICKER_API_KEY || "",
+      projectNumber: process.env.GOOGLE_CLOUD_PROJECT_NUMBER || "",
+      folderId: DEFAULT_DRIVE_FOLDER_ID,
+      expiresIn: 3600
+    };
+  } catch (err: any) {
+    throw formatDriveOAuthError(err);
   }
-
-  return {
-    accessToken: token,
-    apiKey: process.env.GOOGLE_PICKER_API_KEY || "",
-    projectNumber: process.env.GOOGLE_CLOUD_PROJECT_NUMBER || "",
-    folderId: DEFAULT_DRIVE_FOLDER_ID,
-    expiresIn: 3600
-  };
 };
 
 // ==========================================
@@ -531,8 +545,13 @@ export const createResumableUploadSession = async (options: ResumableSessionOpti
   }
 
   const { oauth2Client } = await getDriveOAuthClient(options.uploadedByUid);
-  const tokenRes = await oauth2Client.getAccessToken();
-  const token = tokenRes.token;
+  let token: string | null = null;
+  try {
+    const tokenRes = await oauth2Client.getAccessToken();
+    token = tokenRes.token || null;
+  } catch (err: any) {
+    throw formatDriveOAuthError(err);
+  }
 
   if (!token) {
     throw new DriveIntegrationError("Failed to retrieve OAuth access token for resumable upload creation", 502);
@@ -648,17 +667,21 @@ export const verifyUploadedDriveFile = async (query: VerifyUploadedFileInput): P
       });
       fileData = res.data;
     } catch (err: any) {
-      throw new DriveIntegrationError(`Unable to retrieve file with ID '${query.fileId}' from Google Drive: ${err.message}`, 404);
+      throw formatDriveOAuthError(err);
     }
   } else {
     // Search by mediaId in properties and designated parent folder
-    const searchRes = await drive.files.list({
-      q: `properties has { key='mediaId' and value='${query.mediaId}' } and '${targetFolderId}' in parents and trashed = false`,
-      fields: "files(id, name, mimeType, size, parents, properties, appProperties, webViewLink, trashed)",
-      pageSize: 5
-    });
-    if (searchRes.data.files && searchRes.data.files.length > 0) {
-      fileData = searchRes.data.files[0];
+    try {
+      const searchRes = await drive.files.list({
+        q: `properties has { key='mediaId' and value='${query.mediaId}' } and '${targetFolderId}' in parents and trashed = false`,
+        fields: "files(id, name, mimeType, size, parents, properties, appProperties, webViewLink, trashed)",
+        pageSize: 5
+      });
+      if (searchRes.data.files && searchRes.data.files.length > 0) {
+        fileData = searchRes.data.files[0];
+      }
+    } catch (err: any) {
+      throw formatDriveOAuthError(err);
     }
   }
 
@@ -764,10 +787,7 @@ export const makeDriveFilePublic = async (fileId: string): Promise<{ success: bo
     return { success: true, permissionId: created.data.id || undefined };
   } catch (err: any) {
     console.error(`[DriveAuth] Public permission creation failed for file '${fileId}':`, err.message);
-    throw new DriveIntegrationError(
-      `Google Drive public sharing failed for file '${fileId}': ${err.message || "Organization or Drive policy prohibits public sharing."}`,
-      400
-    );
+    throw formatDriveOAuthError(err);
   }
 };
 
@@ -946,9 +966,6 @@ export const streamDriveFile = async (fileId: string, rangeHeader?: string): Pro
       }
     };
   } catch (err: any) {
-    if (err instanceof DriveIntegrationError) throw err;
-    const status = err.response?.status || err.statusCode || 500;
-    const msg = err.message || "Failed to stream file from Google Drive";
-    throw new DriveIntegrationError(`Drive streaming error: ${msg}`, status);
+    throw formatDriveOAuthError(err);
   }
 };

@@ -36,7 +36,7 @@ export function MediaCenterRevamp({ data, content }: { data?: any; content?: any
 
   const fetchHomepageMedia = async (isBackground = false) => {
     try {
-      if (!isBackground && !mediaData) {
+      if (!isBackground && !mediaData && !data?.items?.length) {
         setLoading(true);
       }
       const res = await fetch("/api/public/media");
@@ -45,12 +45,15 @@ export function MediaCenterRevamp({ data, content }: { data?: any; content?: any
       }
       const json = await res.json();
       if (!isMountedRef.current) return;
-      setMediaData(json.data || json);
-      setError(null);
+      const fetchedItems = json.data?.items || json.items;
+      if (Array.isArray(fetchedItems)) {
+        setMediaData(json.data || json);
+        setError(null);
+      }
     } catch (err: any) {
       if (!isMountedRef.current) return;
       console.error("[MediaCenterRevamp] Error fetching homepage media:", err);
-      if (!mediaData) {
+      if (!mediaData && !data?.items?.length) {
         setError(err.message || "Failed to load featured media");
       }
     } finally {
@@ -62,23 +65,22 @@ export function MediaCenterRevamp({ data, content }: { data?: any; content?: any
 
   useEffect(() => {
     isMountedRef.current = true;
-    if (!hasUsableParentData) {
-      fetchHomepageMedia(false);
-    } else {
+    if (data?.items?.length) {
       setLoading(false);
     }
+    fetchHomepageMedia(false);
     return () => {
       isMountedRef.current = false;
     };
-  }, [hasUsableParentData]);
+  }, []);
 
   use10SecPublicPolling(async (isBackground) => {
     if (isBackground) {
       await fetchHomepageMedia(true);
     }
-  }, !hasUsableParentData);
+  });
 
-  const rawItems = Array.isArray(mediaData?.items) ? mediaData.items : [];
+  const rawItems = Array.isArray(mediaData?.items) ? mediaData.items : (Array.isArray(data?.items) ? data.items : []);
   const homeItems = rawItems
     .filter((item: any) => item.showOnHome === true && item.status === "PUBLISHED")
     .sort((a: any, b: any) => {
@@ -232,21 +234,20 @@ export function SocialMediaHub({ data, content }: { data?: any; content?: any })
 
   useEffect(() => {
     isMountedRef.current = true;
-    if (!hasUsableParentData) {
-      fetchChannels(false);
-    } else {
+    if (channels.length > 0) {
       setLoading(false);
     }
+    fetchChannels(false);
     return () => {
       isMountedRef.current = false;
     };
-  }, [hasUsableParentData]);
+  }, []);
 
   use10SecPublicPolling(async (isBackground) => {
     if (isBackground) {
       await fetchChannels(true);
     }
-  }, !hasUsableParentData);
+  });
 
   const homeChannels = channels
     .filter((ch: any) => ch.showOnHome !== false && ch.enabled !== false && ch.status !== "DELETED")

@@ -10,6 +10,7 @@ import {
   PublicHomePagePayload,
   SectionType
 } from "../types/homeCms";
+import { getMediaItems, sanitizePublicMediaItem, getSocialChannels } from "./mediaService";
 
 export const SITE_SETTINGS_COLLECTION = "site_settings";
 export const HOME_SECTIONS_COLLECTION = "home_sections";
@@ -704,6 +705,48 @@ export async function getPublicHomePayload(): Promise<PublicHomePagePayload> {
     getSiteSettings(),
     getAllHomeSections(false)
   ]);
+
+  // Merge authoritative published media items from Google Sheets into media_center section
+  try {
+    const { items } = await getMediaItems({
+      status: "PUBLISHED",
+      showOnHomeOnly: true,
+      limit: 1000
+    });
+    const mediaSectionIdx = sections.findIndex((s) => s.sectionId === "media_center");
+    if (mediaSectionIdx !== -1) {
+      sections[mediaSectionIdx] = {
+        ...sections[mediaSectionIdx],
+        data: {
+          ...(sections[mediaSectionIdx].data || {}),
+          items: items.slice(0, 4).map(sanitizePublicMediaItem)
+        }
+      };
+    }
+  } catch (err) {
+    console.error("[HomeService] Failed to merge authoritative media items into home payload:", err);
+  }
+
+  // Merge authoritative social channels from Google Sheets into social_hub section
+  try {
+    const channels = await getSocialChannels({
+      onlyEnabled: true,
+      showOnHomeOnly: true,
+      includeDeleted: false
+    });
+    const socialSectionIdx = sections.findIndex((s) => s.sectionId === "social_hub");
+    if (socialSectionIdx !== -1) {
+      sections[socialSectionIdx] = {
+        ...sections[socialSectionIdx],
+        data: {
+          ...(sections[socialSectionIdx].data || {}),
+          platforms: channels.slice(0, 4)
+        }
+      };
+    }
+  } catch (err) {
+    console.error("[HomeService] Failed to merge authoritative social channels into home payload:", err);
+  }
 
   const payload: PublicHomePagePayload = {
     settings,

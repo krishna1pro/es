@@ -8,29 +8,53 @@ import BrandedLoading from "@/src/components/BrandedLoading";
 import { DailyActivities, MonthlyActivities, YearlyReport } from "@/src/components/home/ActivitiesGrid";
 import { motion } from "motion/react";
 import { Calendar, Filter, AlertCircle } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+
+import { use10SecPublicPolling } from "@/src/hooks/use10SecPublicPolling";
 
 export default function Activities() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
+
+  const fetchActivities = async (isBackground = false) => {
+    try {
+      if (!isBackground && !data) {
+        setLoading(true);
+      }
+      const res = await fetch("/api/public/activities");
+      if (!res.ok) throw new Error("Failed to load activities");
+      const json = await res.json();
+      if (!isMountedRef.current) return;
+      setData(json.data || json);
+      setError(null);
+    } catch (err: any) {
+      if (!isMountedRef.current) return;
+      console.error("Error fetching activities:", err);
+      if (!data) {
+        setError("Failed to load activities page content.");
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    }
+  };
 
   useEffect(() => {
-    fetch("/api/public/activities")
-      .then(res => {
-        if (!res.ok) throw new Error("Failed to load activities");
-        return res.json();
-      })
-      .then(json => {
-        setData(json.data || json);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Error fetching activities:", err);
-        setError("Failed to load activities page content.");
-        setLoading(false);
-      });
+    isMountedRef.current = true;
+    fetchActivities(false);
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
+
+  use10SecPublicPolling(async (isBackground) => {
+    if (isBackground) {
+      await fetchActivities(true);
+    }
+  });
 
   if (loading) {
     return (

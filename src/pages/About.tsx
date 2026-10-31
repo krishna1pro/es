@@ -1,25 +1,53 @@
 import PublicLayout from "@/src/components/layout/PublicLayout";
 import { motion } from "motion/react";
 import { Shield, Target, Landmark, History, Activity } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import BrandedLoading from "@/src/components/BrandedLoading";
 import { useRouteTransitionLoading } from "@/src/hooks/useRouteTransitionLoading";
+
+import { use10SecPublicPolling } from "@/src/hooks/use10SecPublicPolling";
 
 export default function About() {
   const [content, setContent] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const isMountedRef = useRef(true);
 
-  useEffect(() => {
-    fetch("/api/public/about")
-      .then(res => res.json())
-      .then(data => {
+  const fetchAbout = async (isBackground = false) => {
+    try {
+      if (!isBackground && !content) {
+        setLoading(true);
+      }
+      const res = await fetch("/api/public/about");
+      if (res.ok) {
+        const data = await res.json();
+        if (!isMountedRef.current) return;
         if (data && data.data) {
           setContent(data.data);
         }
-      })
-      .catch(err => console.error("Failed to load about page:", err))
-      .finally(() => setLoading(false));
+      }
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      console.error("Failed to load about page:", err);
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    fetchAbout(false);
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
+
+  use10SecPublicPolling(async (isBackground) => {
+    if (isBackground) {
+      await fetchAbout(true);
+    }
+  });
 
   const pageTitle = content?.pageTitle || "Our District Core";
   const pageSubtitle = content?.pageSubtitle || "Founded on the principles of transparency and development, we work tirelessly to serve every citizen in the district.";

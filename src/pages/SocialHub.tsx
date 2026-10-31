@@ -8,27 +8,42 @@ import { motion } from "motion/react";
 import { PlayCircle, ExternalLink, Globe, Activity, AlertCircle } from "lucide-react";
 import { useState, useEffect } from "react";
 
+import { use10SecPublicPolling } from "@/src/hooks/use10SecPublicPolling";
+
 export default function SocialHub() {
   const [channels, setChannels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch("/api/public/social/channels")
-      .then(res => {
-        if (!res.ok) throw new Error("Failed to load social channels");
-        return res.json();
-      })
-      .then(json => {
-        setChannels(json.channels || json.data || []);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Error fetching social hub:", err);
+  const fetchChannels = async (isBackground = false) => {
+    try {
+      if (!isBackground && channels.length === 0) {
+        setLoading(true);
+      }
+      const res = await fetch("/api/public/social/channels");
+      if (!res.ok) throw new Error("Failed to load social channels");
+      const json = await res.json();
+      setChannels(json.channels || json.data || []);
+      setError(null);
+    } catch (err: any) {
+      console.error("Error fetching social hub:", err);
+      if (channels.length === 0) {
         setError("Failed to load social media channels.");
-        setLoading(false);
-      });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchChannels(false);
   }, []);
+
+  use10SecPublicPolling(async (isBackground) => {
+    if (isBackground) {
+      await fetchChannels(true);
+    }
+  });
 
   return (
     <PublicLayout>

@@ -8,23 +8,51 @@ import BrandedLoading from "@/src/components/BrandedLoading";
 import OurVision from "@/src/components/home/OurVision";
 import { motion } from "motion/react";
 import { ShieldCheck, Target, Lightbulb } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+
+import { use10SecPublicPolling } from "@/src/hooks/use10SecPublicPolling";
 
 export default function Vision() {
   const [visionPage, setVisionPage] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const isMountedRef = useRef(true);
 
-  useEffect(() => {
-    fetch("/api/public/vision")
-      .then(res => res.json())
-      .then(data => {
+  const fetchVision = async (isBackground = false) => {
+    try {
+      if (!isBackground && !visionPage) {
+        setLoading(true);
+      }
+      const res = await fetch("/api/public/vision");
+      if (res.ok) {
+        const data = await res.json();
+        if (!isMountedRef.current) return;
         if (data && data.visionPage) {
           setVisionPage(data.visionPage);
         }
-      })
-      .catch(err => console.error("Failed to load vision page:", err))
-      .finally(() => setLoading(false));
+      }
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      console.error("Failed to load vision page:", err);
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    fetchVision(false);
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
+
+  use10SecPublicPolling(async (isBackground) => {
+    if (isBackground) {
+      await fetchVision(true);
+    }
+  });
 
   const pageTitle = visionPage?.pageTitle || "Vision for a Better Tomorrow";
   const pageSubtitle = visionPage?.pageSubtitle || "Building a prosperous, inclusive, and sustainable constituency through innovation, integrity, and hard work.";

@@ -3,17 +3,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion } from "motion/react";
 import { Image as ImageIcon, PlayCircle, ExternalLink, Activity, AlertCircle, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 import HomeIcon from "./HomeIcon";
+
+import { use10SecPublicPolling } from "@/src/hooks/use10SecPublicPolling";
 
 export function MediaCenterRevamp({ data, content }: { data?: any; content?: any }) {
   const [mediaData, setMediaData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("ALL");
+  const isMountedRef = useRef(true);
 
   const TABS = [
     { label: "All Featured", key: "ALL" },
@@ -24,27 +27,56 @@ export function MediaCenterRevamp({ data, content }: { data?: any; content?: any
     { label: "Interviews", key: "INTERVIEWS" }
   ];
 
-  const fetchHomepageMedia = async () => {
+  const hasUsableParentData = Boolean(
+    data && (
+      (Array.isArray(data.items) && data.items.length > 0) ||
+      (Array.isArray(data.media) && data.media.length > 0)
+    )
+  );
+
+  const fetchHomepageMedia = async (isBackground = false) => {
     try {
-      setLoading(true);
-      setError(null);
+      if (!isBackground && !mediaData) {
+        setLoading(true);
+      }
       const res = await fetch("/api/public/media");
       if (!res.ok) {
         throw new Error(`Failed to load homepage media: HTTP ${res.status}`);
       }
       const json = await res.json();
+      if (!isMountedRef.current) return;
       setMediaData(json.data || json);
+      setError(null);
     } catch (err: any) {
+      if (!isMountedRef.current) return;
       console.error("[MediaCenterRevamp] Error fetching homepage media:", err);
-      setError(err.message || "Failed to load featured media");
+      if (!mediaData) {
+        setError(err.message || "Failed to load featured media");
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchHomepageMedia();
-  }, []);
+    isMountedRef.current = true;
+    if (!hasUsableParentData) {
+      fetchHomepageMedia(false);
+    } else {
+      setLoading(false);
+    }
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [hasUsableParentData]);
+
+  use10SecPublicPolling(async (isBackground) => {
+    if (isBackground) {
+      await fetchHomepageMedia(true);
+    }
+  }, !hasUsableParentData);
 
   const rawItems = Array.isArray(mediaData?.items) ? mediaData.items : [];
   const homeItems = rawItems
@@ -100,7 +132,7 @@ export function MediaCenterRevamp({ data, content }: { data?: any; content?: any
           <AlertCircle size={28} className="text-red-500" />
           <span>Unable to load featured media from authoritative storage.</span>
           <button
-            onClick={fetchHomepageMedia}
+            onClick={() => fetchHomepageMedia(false)}
             className="mt-2 px-6 py-2.5 bg-blue-900 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-blue-800 transition-all shadow-md flex items-center gap-2"
           >
             <RefreshCw size={12} /> Retry Connection
@@ -165,21 +197,56 @@ export function MediaCenterRevamp({ data, content }: { data?: any; content?: any
 export function SocialMediaHub({ data, content }: { data?: any; content?: any }) {
   const [channels, setChannels] = useState<any[]>(data?.platforms || content?.platforms || []);
   const [loading, setLoading] = useState(channels.length === 0);
+  const isMountedRef = useRef(true);
 
-  useEffect(() => {
-    fetch("/api/public/social/channels")
-      .then(res => res.json())
-      .then(json => {
+  const hasUsableParentData = Boolean(
+    data && (
+      (Array.isArray(data.platforms) && data.platforms.length > 0) ||
+      (Array.isArray(data.channels) && data.channels.length > 0) ||
+      (Array.isArray(data.items) && data.items.length > 0)
+    )
+  );
+
+  const fetchChannels = async (isBackground = false) => {
+    try {
+      if (!isBackground && channels.length === 0) {
+        setLoading(true);
+      }
+      const res = await fetch("/api/public/social/channels");
+      if (res.ok) {
+        const json = await res.json();
+        if (!isMountedRef.current) return;
         if (json.channels && Array.isArray(json.channels) && json.channels.length > 0) {
           setChannels(json.channels);
         }
+      }
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      console.error("Error fetching homepage social channels:", err);
+    } finally {
+      if (isMountedRef.current) {
         setLoading(false);
-      })
-      .catch(err => {
-        console.error("Error fetching homepage social channels:", err);
-        setLoading(false);
-      });
-  }, []);
+      }
+    }
+  };
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    if (!hasUsableParentData) {
+      fetchChannels(false);
+    } else {
+      setLoading(false);
+    }
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [hasUsableParentData]);
+
+  use10SecPublicPolling(async (isBackground) => {
+    if (isBackground) {
+      await fetchChannels(true);
+    }
+  }, !hasUsableParentData);
 
   const homeChannels = channels
     .filter((ch: any) => ch.showOnHome !== false && ch.enabled !== false && ch.status !== "DELETED")

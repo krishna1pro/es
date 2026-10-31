@@ -40,15 +40,35 @@ import AdminMediaCenter from "./pages/AdminMediaCenter";
 import AdminSocialHub from "./pages/AdminSocialHub";
 import SubmissionsManager from "./pages/SubmissionsManager";
 
+function isAdminRoute(pathname: string): boolean {
+  const p = pathname.toLowerCase();
+  return (
+    p.startsWith("/admin") ||
+    p.startsWith("/leadership-control-center") ||
+    p.startsWith("/waiting-room") ||
+    p === "/login" ||
+    p === "/admin/login"
+  );
+}
+
 function AppContent({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  const [loading, setLoading] = useState(true);
+  const isAdmin = isAdminRoute(location.pathname);
+  const [loading, setLoading] = useState(!isAdmin);
 
   useEffect(() => {
+    if (isAdmin) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    const timer = setTimeout(() => setLoading(false), 5000);
+    const timer = setTimeout(() => setLoading(false), 800);
     return () => clearTimeout(timer);
-  }, [location.pathname]);
+  }, [location.pathname, isAdmin]);
+
+  if (isAdmin) {
+    return <>{children}</>;
+  }
 
   return (
     <>
@@ -67,7 +87,7 @@ function UrlSanitizerListener() {
   return null;
 }
 
-function AppRoutes() {
+function AppRoutesInner() {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -84,7 +104,7 @@ function AppRoutes() {
   const isApproved = user && user.status === UserStatus.APPROVED;
 
   return (
-    <Router>
+    <SiteSettingsProvider>
       <UrlSanitizerListener />
       <AppContent>
         <Routes>
@@ -154,16 +174,16 @@ function AppRoutes() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppContent>
-    </Router>
+    </SiteSettingsProvider>
   );
 }
 
 export default function App() {
   return (
-    <SiteSettingsProvider>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </SiteSettingsProvider>
+    <AuthProvider>
+      <Router>
+        <AppRoutesInner />
+      </Router>
+    </AuthProvider>
   );
 }

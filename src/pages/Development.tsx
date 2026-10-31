@@ -7,7 +7,7 @@ import PublicLayout from "@/src/components/layout/PublicLayout";
 import BrandedLoading from "@/src/components/BrandedLoading";
 import { motion } from "motion/react";
 import { Activity, Construction, Droplets, HeartPulse, GraduationCap, Tractor, Home as HomeIcon, MapPin, ArrowRight, AlertCircle } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const ICON_MAP: Record<string, any> = {
   "Infrastructure & Roads": Construction,
@@ -18,27 +18,51 @@ const ICON_MAP: Record<string, any> = {
   "Housing Projects": HomeIcon
 };
 
+import { use10SecPublicPolling } from "@/src/hooks/use10SecPublicPolling";
+
 export default function Development() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
+
+  const fetchDevelopment = async (isBackground = false) => {
+    try {
+      if (!isBackground && !data) {
+        setLoading(true);
+      }
+      const res = await fetch("/api/public/development");
+      if (!res.ok) throw new Error("Failed to load development data");
+      const json = await res.json();
+      if (!isMountedRef.current) return;
+      setData(json.data || json);
+      setError(null);
+    } catch (err: any) {
+      if (!isMountedRef.current) return;
+      console.error("Error fetching development data:", err);
+      if (!data) {
+        setError("Failed to load development page content.");
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    }
+  };
 
   useEffect(() => {
-    fetch("/api/public/development")
-      .then(res => {
-        if (!res.ok) throw new Error("Failed to load development data");
-        return res.json();
-      })
-      .then(json => {
-        setData(json.data || json);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Error fetching development data:", err);
-        setError("Failed to load development page content.");
-        setLoading(false);
-      });
+    isMountedRef.current = true;
+    fetchDevelopment(false);
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
+
+  use10SecPublicPolling(async (isBackground) => {
+    if (isBackground) {
+      await fetchDevelopment(true);
+    }
+  });
 
   if (loading) {
     return (

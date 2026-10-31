@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, RefreshCw, AlertCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -32,7 +32,7 @@ import { CadreCorner, PeopleVoiceGrid } from "@/src/components/home/CadreCorner"
 import { MediaCenterRevamp, SocialMediaHub } from "@/src/components/home/MediaSocialHub";
 import { UpcomingEvents, VolunteerContact } from "@/src/components/home/VolunteerContact";
 import BrandedLoading from "@/src/components/BrandedLoading";
-import { useRouteTransitionLoading } from "@/src/hooks/useRouteTransitionLoading";
+import { use10SecPublicPolling } from "@/src/hooks/use10SecPublicPolling";
 
 export default function Home() {
   const { t } = useTranslation();
@@ -41,16 +41,19 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<string>("mongodb");
+  const isMountedRef = useRef(true);
 
-  const fetchHomeData = async () => {
+  const fetchHomeData = async (isBackground = false) => {
     try {
-      setLoading(true);
-      setError(null);
+      if (!isBackground && sections.length === 0) {
+        setLoading(true);
+      }
       const res = await fetch("/api/public/home");
       if (!res.ok) {
         throw new Error(`Failed to load homepage data: ${res.status} ${res.statusText}`);
       }
       const data: PublicHomePagePayload = await res.json();
+      if (!isMountedRef.current) return;
       if (data && data.sections) {
         setSections(data.sections.filter((s) => s.enabled !== false));
         if (data.settings) {
@@ -59,23 +62,38 @@ export default function Home() {
         if (data.source) {
           setSource(data.source);
         }
+        setError(null);
       } else {
         throw new Error("Invalid payload format received from server");
       }
     } catch (err: any) {
+      if (!isMountedRef.current) return;
       console.error("[Home] Error fetching public home payload:", err);
-      setError(err.message || "Failed to load home page content from MongoDB");
+      if (sections.length === 0) {
+        setError(err.message || "Failed to load home page content from MongoDB");
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchHomeData();
+    isMountedRef.current = true;
+    fetchHomeData(false);
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
-  const timeoutLoading = useRouteTransitionLoading(5000);
-  if (loading && timeoutLoading && sections.length === 0) {
+  use10SecPublicPolling(async (isBackground) => {
+    if (isBackground) {
+      await fetchHomeData(true);
+    }
+  });
+
+  if (loading && sections.length === 0) {
     return (
       <PublicLayout settings={settings}>
         <BrandedLoading />
@@ -95,7 +113,7 @@ export default function Home() {
           </h2>
           <p className="text-xs text-slate-500 leading-relaxed">{error}</p>
           <button
-            onClick={fetchHomeData}
+            onClick={() => fetchHomeData(false)}
             className="px-6 py-2.5 bg-blue-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-800 transition-all flex items-center gap-2 mx-auto"
           >
             <RefreshCw size={14} /> Retry Connection

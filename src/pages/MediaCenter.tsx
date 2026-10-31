@@ -6,7 +6,9 @@
 import PublicLayout from "@/src/components/layout/PublicLayout";
 import { motion } from "motion/react";
 import { Play, Image as ImageIcon, FileText, Share2, Search, Activity, AlertCircle, ExternalLink } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+
+import { use10SecPublicPolling } from "@/src/hooks/use10SecPublicPolling";
 
 export default function MediaCenter() {
   const [data, setData] = useState<any>(null);
@@ -14,13 +16,15 @@ export default function MediaCenter() {
   const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const isMountedRef = useRef(true);
 
   const CATEGORIES = ["ALL", "PHOTO_GALLERY", "VIDEO_GALLERY", "PRESS_RELEASES", "NEWS_COVERAGE", "INTERVIEWS"];
 
-  const fetchMedia = async () => {
+  const fetchMedia = async (isBackground = false) => {
     try {
-      setLoading(true);
-      setError(null);
+      if (!isBackground && !data) {
+        setLoading(true);
+      }
       const res = await fetch("/api/public/media/items?limit=100");
       if (res.status === 503) {
         throw new Error("Authoritative Google Sheets service is currently unavailable (HTTP 503).");
@@ -29,18 +33,35 @@ export default function MediaCenter() {
         throw new Error(`Failed to load media center: HTTP ${res.status}`);
       }
       const json = await res.json();
+      if (!isMountedRef.current) return;
       setData(json);
+      setError(null);
     } catch (err: any) {
+      if (!isMountedRef.current) return;
       console.error("Error fetching public media:", err);
-      setError(err.message || "Failed to load media center content.");
+      if (!data) {
+        setError(err.message || "Failed to load media center content.");
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchMedia();
+    isMountedRef.current = true;
+    fetchMedia(false);
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
+
+  use10SecPublicPolling(async (isBackground) => {
+    if (isBackground) {
+      await fetchMedia(true);
+    }
+  });
 
   if (loading) {
     return (
@@ -59,7 +80,7 @@ export default function MediaCenter() {
           <AlertCircle size={48} className="mx-auto mb-4 text-red-500" />
           <p className="font-black uppercase text-xs tracking-widest mb-6">{error}</p>
           <button
-            onClick={fetchMedia}
+            onClick={() => fetchMedia(false)}
             className="px-8 py-3 bg-white text-slate-900 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-50 transition-all shadow-xl"
           >
             Retry Connection

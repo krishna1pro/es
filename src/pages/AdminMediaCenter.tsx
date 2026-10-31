@@ -181,29 +181,85 @@ export default function AdminMediaCenter() {
       }
 
       const initData = await initRes.json();
-      const { mediaId, uploadUrl } = initData;
+      const { mediaId } = initData;
       setUploadProgress(35);
 
-      // 2. Upload binary directly or via mock
-      if (uploadUrl && uploadUrl.includes("mock.drive.google.com")) {
-        await authFetch(`/api/admin/media/upload/${mediaId}/mock-binary`, { method: "POST" });
-      } else {
+      // 2. Upload binary via server-persisted session in 2MB chunks (8 * 256 KiB) to respect Vercel's 4.5 MB payload limit
+      const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB (multiple of 256 KiB = 262,144 bytes)
+      const file = uploadForm.file;
+      const totalSize = file.size;
+
+      let offset = 0;
+      let isComplete = false;
+      let retries = 0;
+      const maxRetries = 3;
+
+      while (offset < totalSize && !isComplete) {
+        const chunkEnd = Math.min(offset + CHUNK_SIZE, totalSize);
+        const chunk = file.slice(offset, chunkEnd);
+        const contentRange = `bytes ${offset}-${chunkEnd - 1}/${totalSize}`;
+
         try {
-          const uploadStreamRes = await fetch(uploadUrl, {
-            method: "PUT",
+          const chunkRes = await authFetch(`/api/admin/media/upload/${mediaId}/chunk`, {
+            method: "POST",
             headers: {
-              "Content-Type": uploadForm.file.type || "image/jpeg"
+              "Content-Type": uploadForm.file.type || "application/octet-stream",
+              "Content-Range": contentRange
             },
-            body: uploadForm.file
+            body: chunk
           });
 
-          if (!uploadStreamRes.ok) {
+          if (!chunkRes.ok) {
+            const errJson = await chunkRes.json().catch(() => ({}));
+            if (errJson.expired) {
+              await authFetch(`/api/admin/media/upload/${mediaId}/cancel`, { method: "POST" });
+              throw new Error("Upload session expired. Please start a new upload.");
+            }
+
+            if (retries < maxRetries) {
+              retries++;
+              const statusRes = await authFetch(`/api/admin/media/upload/${mediaId}/status`).catch(() => null);
+              if (statusRes && statusRes.ok) {
+                const statusData = await statusRes.json().catch(() => null);
+                if (statusData && statusData.nextOffset !== undefined) {
+                  offset = statusData.nextOffset;
+                  continue;
+                }
+              }
+            }
+
             await authFetch(`/api/admin/media/upload/${mediaId}/cancel`, { method: "POST" });
-            throw new Error(`Direct Google Drive upload failed: HTTP ${uploadStreamRes.status}`);
+            throw new Error(errJson.message || errJson.error || `Server chunk upload proxy failed: HTTP ${chunkRes.status}`);
           }
+
+          const chunkData = await chunkRes.json();
+          retries = 0;
+
+          if (chunkData.complete) {
+            isComplete = true;
+            offset = totalSize;
+          } else if (chunkData.nextOffset !== undefined) {
+            offset = chunkData.nextOffset;
+          } else {
+            offset = chunkEnd;
+          }
+
+          const progressPercent = Math.min(80, Math.round(35 + (offset / totalSize) * 45));
+          setUploadProgress(progressPercent);
         } catch (netErr: any) {
+          if (retries < maxRetries) {
+            retries++;
+            const statusRes = await authFetch(`/api/admin/media/upload/${mediaId}/status`).catch(() => null);
+            if (statusRes && statusRes.ok) {
+              const statusData = await statusRes.json().catch(() => null);
+              if (statusData && statusData.nextOffset !== undefined) {
+                offset = statusData.nextOffset;
+                continue;
+              }
+            }
+          }
           await authFetch(`/api/admin/media/upload/${mediaId}/cancel`, { method: "POST" });
-          throw new Error(`Google Drive upload failed due to network or CORS restriction: ${netErr.message || "Failed to fetch"}`);
+          throw new Error(`Google Drive upload failed during binary chunk transfer stage: ${netErr.message || "Failed to transfer file chunk"}`);
         }
       }
 

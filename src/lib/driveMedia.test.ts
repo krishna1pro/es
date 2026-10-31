@@ -20,7 +20,8 @@ import {
   initMockDriveStore,
   clearMockDriveStore,
   DEFAULT_DRIVE_FOLDER_ID,
-  getMockDriveFilesMap
+  getMockDriveFilesMap,
+  getUploadSessionRecord
 } from "./driveAuth";
 import { setCachedTokenForTesting, clearTokenCacheForTesting } from "./authMiddleware";
 import { getMongoClient, getMongoDbName } from "./mongodb";
@@ -286,8 +287,11 @@ async function runDriveMediaTests() {
 
     const initData: any = await validInitRes.json();
     assert.ok(initData.mediaId, "Returns mediaId");
-    assert.ok(initData.uploadUrl.startsWith("https://"), "Returns secure HTTPS upload URL");
     assert.strictEqual(initData.expiresIn, 3600);
+
+    // Verify session uploadUrl is stored securely on server
+    const sessionRecord = await getUploadSessionRecord(initData.mediaId);
+    assert.ok(sessionRecord && sessionRecord.uploadUrl.startsWith("https://"), "Server stores secure HTTPS upload URL in session persistence");
 
     // Verify initial metadata record in MediaItems is in DRAFT status
     const draftItem = await getMediaItemById(initData.mediaId);

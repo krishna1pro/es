@@ -71,6 +71,10 @@ import {
   consumeOAuthTransaction,
   encryptToken,
   createResumableUploadSession,
+  getUploadSessionRecord,
+  deleteUploadSessionRecord,
+  updateMockSessionBytes,
+  parseDriveRangeHeader,
   verifyUploadedDriveFile,
   deleteDriveFile,
   streamDriveFile,
@@ -1009,12 +1013,8 @@ ${JSON.stringify(analyticsData, null, 2)}`;
         res.status(201).json({
           success: true,
           mediaId,
-          uploadUrl: session.uploadUrl,
-          headers: {
-            "Content-Type": mimeType
-          },
           expiresIn: session.expiresIn,
-          message: "Resumable upload session created. Upload bytes directly to uploadUrl, then call /complete."
+          message: "Resumable upload session created. Upload bytes in sequential 2 MB chunks to /api/admin/media/upload/:mediaId/chunk."
         });
       } catch (err: any) {
         console.error("[API] Unexpected error in /api/admin/media/upload:", err);
@@ -1045,6 +1045,312 @@ ${JSON.stringify(analyticsData, null, 2)}`;
       res.status(500).json({ error: err.message || "Failed to process mock binary upload" });
     }
   });
+
+  // Admin: Same-origin binary upload proxy for Google Drive resumable uploads
+  app.post(
+    "/api/admin/media/upload/:mediaId/binary",
+    requireMediaAccess,
+    express.raw({ limit: "100mb", type: "*/*" }),
+    async (req, res) => {
+      try {
+        const mediaId = req.params.mediaId;
+        const session = await getUploadSessionRecord(mediaId);
+        const uploadUrl = session?.uploadUrl || (req.headers["x-upload-url"] as string) || (req.query.uploadUrl as string);
+        const contentType = (req.headers["content-type"] as string) || session?.mimeType || "application/octet-stream";
+        const contentRange = req.headers["content-range"] as string;
+
+        if (!uploadUrl) {
+          return res.status(400).json({ error: "Missing active session or X-Upload-Url header for Drive upload proxy" });
+        }
+
+        const existing = await getMediaItemById(mediaId);
+        if (!existing) {
+          return res.status(404).json({ error: "Media record not found" });
+        }
+
+        if (uploadUrl.includes("mock.drive.google.com") || isMockDriveActive()) {
+          return res.json({ success: true, message: "Mock binary upload proxy completed successfully" });
+        }
+
+        const bodyBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || "");
+        const driveHeaders: Record<string, string> = {
+          "Content-Type": contentType,
+          "Content-Length": String(bodyBuffer.length)
+        };
+        if (contentRange) {
+          driveHeaders["Content-Range"] = contentRange;
+        }
+
+        const driveRes = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: driveHeaders,
+          body: bodyBuffer
+        });
+
+        if (driveRes.status === 308 || driveRes.status === 200 || driveRes.status === 201) {
+          const isComplete = driveRes.status === 200 || driveRes.status === 201;
+          return res.json({
+            success: true,
+            complete: isComplete,
+            status: driveRes.status,
+            message: "Binary data successfully transferred to Google Drive"
+          });
+        }
+
+        const errText = await driveRes.text().catch(() => "");
+        console.error("[API] Server-side Drive upload proxy failed:", driveRes.status, errText);
+        return res.status(driveRes.status || 502).json({
+          error: "Drive Binary Upload Proxy Failed",
+          message: `Google Drive returned HTTP ${driveRes.status} during binary transfer stage: ${errText || driveRes.statusText}`
+        });
+      } catch (err: any) {
+        console.error("[API] Error in binary upload proxy:", err);
+        res.status(500).json({ error: err.message || "Failed to proxy upload to Google Drive" });
+      }
+    }
+  );
+
+  // Admin: Query Google Drive resumable upload session status for chunk recovery & retry
+  app.get(
+    "/api/admin/media/upload/:mediaId/status",
+    requireMediaAccess,
+    async (req, res) => {
+      try {
+        const user = req.user!;
+        const mediaId = req.params.mediaId;
+
+        const session = await getUploadSessionRecord(mediaId);
+        if (!session) {
+          return res.status(404).json({
+            error: "Upload Session Not Found or Expired",
+            message: `No active upload session found for media ID '${mediaId}'.`,
+            expired: true
+          });
+        }
+
+        if (!isSuperAdmin(user)) {
+          const isCreator =
+            (session.uploadedByUid && session.uploadedByUid === user.uid) ||
+            (session.uploadedByEmail && session.uploadedByEmail.toLowerCase() === user.email.toLowerCase());
+          if (!isCreator) {
+            const hasPerm = await checkUserSegmentPermission(user, session.category, "create");
+            if (!hasPerm) {
+              return res.status(403).json({
+                error: "Forbidden",
+                message: `Account '${user.email}' lacks permission to query chunk status for segment '${session.category}'.`
+              });
+            }
+          }
+        }
+
+        if (isMockDriveActive() || session.uploadUrl.includes("mock.drive.google.com")) {
+          const uploaded = session.mockBytesUploaded || 0;
+          const isComplete = uploaded >= session.fileSize;
+          return res.status(200).json({
+            success: true,
+            complete: isComplete,
+            status: isComplete ? 200 : 308,
+            range: uploaded > 0 ? `bytes=0-${uploaded - 1}` : "",
+            nextOffset: uploaded
+          });
+        }
+
+        const driveRes = await fetch(session.uploadUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Length": "0",
+            "Content-Range": `bytes */${session.fileSize}`
+          }
+        });
+
+        if (driveRes.status === 308) {
+          const rangeInfo = parseDriveRangeHeader(driveRes.headers.get("range"));
+          return res.status(200).json({
+            success: true,
+            complete: false,
+            status: 308,
+            range: driveRes.headers.get("range") || "",
+            nextOffset: rangeInfo.nextOffset
+          });
+        }
+
+        if (driveRes.status === 200 || driveRes.status === 201) {
+          return res.status(200).json({
+            success: true,
+            complete: true,
+            status: driveRes.status,
+            range: driveRes.headers.get("range") || `bytes=0-${session.fileSize - 1}`,
+            nextOffset: session.fileSize
+          });
+        }
+
+        if (driveRes.status === 404 || driveRes.status === 410) {
+          await deleteUploadSessionRecord(mediaId);
+          return res.status(404).json({
+            error: "Session Expired",
+            message: "Google Drive resumable upload session has expired in Google Drive.",
+            expired: true
+          });
+        }
+
+        const errText = await driveRes.text().catch(() => "");
+        return res.status(driveRes.status || 502).json({
+          error: "Drive Status Query Failed",
+          message: `Google Drive returned HTTP ${driveRes.status}: ${errText || driveRes.statusText}`
+        });
+      } catch (err: any) {
+        console.error("[API] Error querying upload status:", err);
+        res.status(500).json({ error: err.message || "Failed to query upload status" });
+      }
+    }
+  );
+
+  // Admin: Same-origin chunked binary upload proxy for Google Drive resumable uploads
+  // Sequential <= 2MB chunks comply with Vercel Serverless Function 4.5MB request payload limit
+  app.post(
+    "/api/admin/media/upload/:mediaId/chunk",
+    requireMediaAccess,
+    express.raw({ limit: "5mb", type: "*/*" }),
+    async (req, res) => {
+      try {
+        const user = req.user!;
+        const mediaId = req.params.mediaId;
+
+        // 1. Look up session securely from DB (never rely on client passing uploadUrl)
+        const session = await getUploadSessionRecord(mediaId);
+        if (!session) {
+          return res.status(404).json({
+            error: "Upload Session Not Found or Expired",
+            message: `No active upload session found for media ID '${mediaId}'. The session may have expired or was never created.`,
+            expired: true
+          });
+        }
+
+        // 2. Validate authorization & segment access
+        if (!isSuperAdmin(user)) {
+          const isCreator =
+            (session.uploadedByUid && session.uploadedByUid === user.uid) ||
+            (session.uploadedByEmail && session.uploadedByEmail.toLowerCase() === user.email.toLowerCase());
+          if (!isCreator) {
+            const hasPerm = await checkUserSegmentPermission(user, session.category, "create");
+            if (!hasPerm) {
+              return res.status(403).json({
+                error: "Forbidden",
+                message: `Account '${user.email}' lacks permission to upload chunks for segment '${session.category}'.`
+              });
+            }
+          }
+        }
+
+        const contentRange = req.headers["content-range"] as string;
+        if (!contentRange || typeof contentRange !== "string") {
+          return res.status(400).json({
+            error: "Bad Request",
+            message: "Missing or invalid Content-Range header for chunk upload"
+          });
+        }
+
+        // 3. Validate Content-Range header structure and chunk boundaries
+        const rangeMatch = contentRange.match(/^bytes\s+(\d+)-(\d+)\/(\d+)$/i);
+        if (!rangeMatch) {
+          return res.status(400).json({
+            error: "Bad Request",
+            message: `Invalid Content-Range format '${contentRange}'. Expected 'bytes START-END/TOTAL'`
+          });
+        }
+
+        const reqStart = parseInt(rangeMatch[1], 10);
+        const reqEnd = parseInt(rangeMatch[2], 10);
+        const reqTotal = parseInt(rangeMatch[3], 10);
+
+        const bodyBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || "");
+        const chunkLen = bodyBuffer.length;
+
+        if (reqStart > reqEnd || reqEnd >= reqTotal || reqTotal !== session.fileSize) {
+          return res.status(400).json({
+            error: "Bad Request",
+            message: `Content-Range bounds [${reqStart}-${reqEnd}/${reqTotal}] do not match session total size ${session.fileSize}`
+          });
+        }
+
+        if (chunkLen !== reqEnd - reqStart + 1) {
+          return res.status(400).json({
+            error: "Bad Request",
+            message: `Payload body length (${chunkLen} bytes) does not match Content-Range range (${reqEnd - reqStart + 1} bytes)`
+          });
+        }
+
+        // 4. Handle Mock Drive Mode for testing
+        if (isMockDriveActive() || session.uploadUrl.includes("mock.drive.google.com")) {
+          const newUploaded = reqEnd + 1;
+          updateMockSessionBytes(mediaId, newUploaded);
+          const isComplete = newUploaded >= session.fileSize;
+          // IMPORTANT: Return HTTP 200 with JSON payload (never send HTTP 308 redirect to browser!)
+          return res.status(200).json({
+            success: true,
+            complete: isComplete,
+            status: isComplete ? 200 : 308,
+            range: `bytes=0-${reqEnd}`,
+            nextOffset: isComplete ? session.fileSize : newUploaded
+          });
+        }
+
+        // 5. Real Google Drive Resumable Upload Proxy
+        const driveHeaders: Record<string, string> = {
+          "Content-Type": session.mimeType,
+          "Content-Length": String(chunkLen),
+          "Content-Range": contentRange
+        };
+
+        const driveRes = await fetch(session.uploadUrl, {
+          method: "PUT",
+          headers: driveHeaders,
+          body: bodyBuffer
+        });
+
+        // 6. Internal status handling: return HTTP 200 JSON to browser for both 308 and 200/201 responses
+        if (driveRes.status === 308) {
+          const rangeInfo = parseDriveRangeHeader(driveRes.headers.get("range"));
+          return res.status(200).json({
+            success: true,
+            complete: false,
+            status: 308,
+            range: driveRes.headers.get("range") || `bytes=0-${reqEnd}`,
+            nextOffset: rangeInfo.nextOffset
+          });
+        }
+
+        if (driveRes.status === 200 || driveRes.status === 201) {
+          return res.status(200).json({
+            success: true,
+            complete: true,
+            status: driveRes.status,
+            range: driveRes.headers.get("range") || `bytes=0-${reqEnd}`,
+            nextOffset: session.fileSize
+          });
+        }
+
+        if (driveRes.status === 404 || driveRes.status === 410) {
+          await deleteUploadSessionRecord(mediaId);
+          return res.status(404).json({
+            error: "Session Expired",
+            message: "Google Drive resumable upload session has expired or was invalid.",
+            expired: true
+          });
+        }
+
+        const errText = await driveRes.text().catch(() => "");
+        console.error("[API] Server-side Drive chunk proxy failed:", driveRes.status, errText);
+        return res.status(driveRes.status || 502).json({
+          error: "Drive Chunk Upload Proxy Failed",
+          message: `Google Drive returned HTTP ${driveRes.status} during chunk transfer: ${errText || driveRes.statusText}`
+        });
+      } catch (err: any) {
+        console.error("[API] Error in chunk upload proxy:", err);
+        res.status(500).json({ error: err.message || "Failed to proxy chunk upload to Google Drive" });
+      }
+    }
+  );
 
   // Admin: Finalize Google Drive Upload
   // Verifies the completed file in Google Drive, confirms folder and mediaId identity, and links metadata in Google Sheets
@@ -2075,9 +2381,12 @@ ${JSON.stringify(analyticsData, null, 2)}`;
       httpOnly: true, secure: true, sameSite: "lax", maxAge: 600000, path: "/api/admin/drive/callback" 
     });
     
+    const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+
     const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_DRIVE_CLIENT_ID,
-      process.env.GOOGLE_DRIVE_CLIENT_SECRET,
+      clientId,
+      clientSecret,
       `${process.env.SITE_URL}/api/admin/drive/callback`
     );
     const authUrl = oauth2Client.generateAuthUrl({
@@ -2114,9 +2423,12 @@ ${JSON.stringify(analyticsData, null, 2)}`;
         }
 
         // 3. Exchange code
+        const cbClientId = process.env.GOOGLE_DRIVE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+        const cbClientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+
         const oauth2Client = new google.auth.OAuth2(
-            process.env.GOOGLE_DRIVE_CLIENT_ID,
-            process.env.GOOGLE_DRIVE_CLIENT_SECRET,
+            cbClientId,
+            cbClientSecret,
             `${process.env.SITE_URL}/api/admin/drive/callback`
         );
         const { tokens } = await oauth2Client.getToken(code as string);

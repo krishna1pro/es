@@ -11,7 +11,15 @@ import { getMongoClient, getMongoDbName } from "./mongodb";
 export const DEFAULT_DRIVE_FOLDER_ID = "1gIQLW7nwr2ZwZMDlFicWD9aGTn7MX9hh";
 
 const ALGORITHM = "aes-256-gcm";
-const ENCRYPTION_KEY = Buffer.from(process.env.ENCRYPTION_KEY || "", "hex");
+
+const getEncryptionKey = (): Buffer => {
+  const envKey = process.env.ENCRYPTION_KEY;
+  if (envKey && envKey.length === 64) {
+    const buf = Buffer.from(envKey, "hex");
+    if (buf.length === 32) return buf;
+  }
+  return crypto.createHash("sha256").update(envKey || "default_applet_media_encryption_key_2026").digest();
+};
 
 // ==========================================
 // MIME TYPE ALLOWLISTS AND SIZE LIMITS
@@ -143,8 +151,10 @@ export const consumeOAuthTransaction = async (state: string) => {
 // ==========================================
 
 export const encryptToken = (token: string) => {
+  if (!token) return "";
+  const key = getEncryptionKey();
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
   let encrypted = cipher.update(token, "utf8", "hex");
   encrypted += cipher.final("hex");
   const authTag = cipher.getAuthTag().toString("hex");
@@ -152,12 +162,22 @@ export const encryptToken = (token: string) => {
 };
 
 export const decryptToken = (encryptedToken: string) => {
-  const [iv, authTag, encrypted] = encryptedToken.split(":");
-  const decipher = crypto.createDecipheriv(ALGORITHM, ENCRYPTION_KEY, Buffer.from(iv, "hex"));
-  decipher.setAuthTag(Buffer.from(authTag, "hex"));
-  let decrypted = decipher.update(encrypted, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
+  if (!encryptedToken) return "";
+  const parts = encryptedToken.split(":");
+  if (parts.length !== 3) {
+    return encryptedToken;
+  }
+  const [iv, authTag, encrypted] = parts;
+  try {
+    const key = getEncryptionKey();
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, Buffer.from(iv, "hex"));
+    decipher.setAuthTag(Buffer.from(authTag, "hex"));
+    let decrypted = decipher.update(encrypted, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  } catch (err) {
+    return encryptedToken;
+  }
 };
 
 // ==========================================
@@ -222,12 +242,12 @@ export const getActiveDriveCredentials = async (specificUid?: string) => {
 export const getDriveOAuthClient = async (uid?: string) => {
   const creds = await getActiveDriveCredentials(uid);
 
-  const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET;
+  const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
     throw new DriveIntegrationError(
-      "Google Drive OAuth client credentials (GOOGLE_DRIVE_CLIENT_ID or GOOGLE_DRIVE_CLIENT_SECRET) are unconfigured in environment.",
+      "Google Drive OAuth client credentials (GOOGLE_DRIVE_CLIENT_ID / GOOGLE_CLIENT_ID or GOOGLE_DRIVE_CLIENT_SECRET / GOOGLE_CLIENT_SECRET) are unconfigured in environment.",
       503
     );
   }
@@ -246,15 +266,47 @@ export const getDriveOAuthClient = async (uid?: string) => {
     );
   }
 
+  const siteUrl = (process.env.SITE_URL || "https://www.chintadaravikumar.in").replace(/\/+$/, "");
+  const redirectUri = `${siteUrl}/api/admin/drive/callback`;
+
   const oauth2Client = new google.auth.OAuth2(
     clientId,
     clientSecret,
-    `${process.env.SITE_URL || ""}/api/admin/drive/callback`
+    redirectUri
   );
 
   oauth2Client.setCredentials({ refresh_token: decryptedToken });
   return { oauth2Client, creds };
 };
+
+export function formatDriveOAuthError(err: any): DriveIntegrationError {
+  if (err instanceof DriveIntegrationError) return err;
+
+  const status = err.response?.status || err.statusCode || 500;
+  const rawMsg = err.response?.data?.error || err.message || "";
+  const errDesc = err.response?.data?.error_description || "";
+
+  if (typeof rawMsg === "string" && (rawMsg.includes("invalid_client") || rawMsg.includes("unauthorized_client"))) {
+    return new DriveIntegrationError(
+      "Google OAuth error 'invalid_client': The configured OAuth Client ID or Client Secret is invalid or mismatched in environment variables. Verify GOOGLE_DRIVE_CLIENT_ID / GOOGLE_CLIENT_ID and GOOGLE_DRIVE_CLIENT_SECRET / GOOGLE_CLIENT_SECRET in Vercel settings.",
+      401,
+      { code: "invalid_client", details: errDesc }
+    );
+  }
+
+  if (
+    (typeof rawMsg === "string" && rawMsg.includes("invalid_grant")) ||
+    (typeof errDesc === "string" && errDesc.includes("Token has been expired or revoked"))
+  ) {
+    return new DriveIntegrationError(
+      "Google OAuth error 'invalid_grant': Stored refresh token has expired or been revoked. Super Admin must click Reconnect Drive in Admin Settings.",
+      401,
+      { code: "invalid_grant", details: errDesc }
+    );
+  }
+
+  return new DriveIntegrationError(`Google Drive API error: ${rawMsg || err.message}`, status);
+}
 
 export const getDriveClient = async (uid?: string): Promise<drive_v3.Drive> => {
   const { oauth2Client } = await getDriveOAuthClient(uid);
@@ -294,8 +346,138 @@ export const getShortLivedPickerToken = async (uid?: string) => {
 };
 
 // ==========================================
-// RESUMABLE UPLOAD SESSION INITIATION
+// RESUMABLE UPLOAD SESSION PERSISTENCE & PARSING
 // ==========================================
+
+export interface UploadSessionRecord {
+  mediaId: string;
+  uploadUrl: string;
+  uploadedByUid: string;
+  uploadedByEmail: string;
+  fileSize: number;
+  mimeType: string;
+  category: string;
+  createdAt: Date;
+  expiresAt: Date;
+  mockBytesUploaded?: number;
+}
+
+const mockSessionsStore = new Map<string, UploadSessionRecord>();
+
+export function clearMockUploadSessions() {
+  mockSessionsStore.clear();
+}
+
+export function getRawMockSessionStore(): Map<string, UploadSessionRecord> {
+  return mockSessionsStore;
+}
+
+export function parseDriveRangeHeader(rangeHeader: string | null | undefined): { start: number; end: number; nextOffset: number } {
+  if (!rangeHeader || typeof rangeHeader !== "string") {
+    return { start: 0, end: -1, nextOffset: 0 };
+  }
+  const match = rangeHeader.match(/(\d+)\s*-\s*(\d+)/);
+  if (!match) {
+    return { start: 0, end: -1, nextOffset: 0 };
+  }
+  const start = parseInt(match[1], 10);
+  const end = parseInt(match[2], 10);
+  if (isNaN(start) || isNaN(end) || end < start) {
+    return { start: 0, end: -1, nextOffset: 0 };
+  }
+  return { start, end, nextOffset: end + 1 };
+}
+
+export const saveUploadSessionRecord = async (
+  session: Omit<UploadSessionRecord, "createdAt" | "expiresAt"> & { expiresInSeconds?: number }
+): Promise<UploadSessionRecord> => {
+  const now = new Date();
+  const expiresIn = session.expiresInSeconds || 3600;
+  const expiresAt = new Date(now.getTime() + expiresIn * 1000);
+
+  // Encrypt uploadUrl at rest before database / store persistence
+  const isPlainUrl = session.uploadUrl.startsWith("http://") || session.uploadUrl.startsWith("https://");
+  const encryptedUploadUrl = isPlainUrl ? encryptToken(session.uploadUrl) : session.uploadUrl;
+
+  const storedRecord: UploadSessionRecord = {
+    ...session,
+    uploadUrl: encryptedUploadUrl,
+    createdAt: now,
+    expiresAt,
+    mockBytesUploaded: session.mockBytesUploaded ?? 0
+  };
+
+  const returnedRecord: UploadSessionRecord = {
+    ...session,
+    createdAt: now,
+    expiresAt,
+    mockBytesUploaded: session.mockBytesUploaded ?? 0
+  };
+
+  if (isMockDriveActive()) {
+    mockSessionsStore.set(session.mediaId, storedRecord);
+    return returnedRecord;
+  }
+
+  const client = await getMongoClient();
+  if (client) {
+    const db = client.db(getMongoDbName());
+    await db.collection("media_upload_sessions").updateOne(
+      { mediaId: session.mediaId },
+      { $set: storedRecord },
+      { upsert: true }
+    );
+  } else {
+    mockSessionsStore.set(session.mediaId, storedRecord);
+  }
+  return returnedRecord;
+};
+
+export const getUploadSessionRecord = async (mediaId: string): Promise<UploadSessionRecord | null> => {
+  let rec: UploadSessionRecord | null = null;
+
+  if (isMockDriveActive()) {
+    rec = mockSessionsStore.get(mediaId) || null;
+  } else {
+    const client = await getMongoClient();
+    if (!client) {
+      rec = mockSessionsStore.get(mediaId) || null;
+    } else {
+      const db = client.db(getMongoDbName());
+      const rawDoc = await db.collection("media_upload_sessions").findOne({ mediaId });
+      rec = rawDoc as unknown as UploadSessionRecord | null;
+    }
+  }
+
+  if (!rec) return null;
+
+  if (new Date(rec.expiresAt) < new Date()) {
+    await deleteUploadSessionRecord(mediaId);
+    return null;
+  }
+
+  // Decrypt uploadUrl for backend use only
+  return {
+    ...rec,
+    uploadUrl: decryptToken(rec.uploadUrl)
+  };
+};
+
+export const updateMockSessionBytes = (mediaId: string, bytesUploaded: number) => {
+  const rec = mockSessionsStore.get(mediaId);
+  if (rec) {
+    rec.mockBytesUploaded = bytesUploaded;
+  }
+};
+
+export const deleteUploadSessionRecord = async (mediaId: string): Promise<void> => {
+  mockSessionsStore.delete(mediaId);
+  const client = await getMongoClient();
+  if (client) {
+    const db = client.db(getMongoDbName());
+    await db.collection("media_upload_sessions").deleteOne({ mediaId }).catch(() => {});
+  }
+};
 
 export interface ResumableSessionOptions {
   mediaId: string;
@@ -329,8 +511,20 @@ export const createResumableUploadSession = async (options: ResumableSessionOpti
       content: Buffer.alloc(Math.min(options.fileSize, 64 * 1024), "A")
     });
 
+    const mockUploadUrl = `https://mock.drive.google.com/upload/${options.mediaId}?session=sess_${Date.now()}`;
+    await saveUploadSessionRecord({
+      mediaId: options.mediaId,
+      uploadUrl: mockUploadUrl,
+      uploadedByUid: options.uploadedByUid,
+      uploadedByEmail: options.uploadedByEmail,
+      fileSize: options.fileSize,
+      mimeType: options.mimeType,
+      category: options.category,
+      expiresInSeconds: 3600
+    });
+
     return {
-      uploadUrl: `https://mock.drive.google.com/upload/${options.mediaId}?session=sess_${Date.now()}`,
+      uploadUrl: mockUploadUrl,
       mediaId: options.mediaId,
       expiresIn: 3600
     };
@@ -382,6 +576,17 @@ export const createResumableUploadSession = async (options: ResumableSessionOpti
   if (!uploadUrl) {
     throw new DriveIntegrationError("Google Drive omitted resumable session Location header", 502);
   }
+
+  await saveUploadSessionRecord({
+    mediaId: options.mediaId,
+    uploadUrl,
+    uploadedByUid: options.uploadedByUid,
+    uploadedByEmail: options.uploadedByEmail,
+    fileSize: options.fileSize,
+    mimeType: options.mimeType,
+    category: options.category,
+    expiresInSeconds: 3600
+  });
 
   return {
     uploadUrl,
